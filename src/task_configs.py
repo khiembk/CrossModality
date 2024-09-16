@@ -342,14 +342,25 @@ def get_optimizer_scheduler(args, model, module=None, n_train=1):
         except:
             print("No predictor module.")
 
-def set_trainable(model,embedder = True, predictor = True): 
+def set_trainable(model,embedder = True, predictor = True, decoder = True): 
+    print("embedder :")
     if embedder :
         for n, m in model.embedder.named_parameters():
+                print(n)
                 m.requires_grad = True
+    print("predictor :")            
     if predictor :
         for n, m in model.predictor.named_parameters():
+                print(n)
                 m.requires_grad = True
+    
+            
 
     return model
 
+def set_decoder_trainable(model):
+    # Make the decoder trainable
+    for name, param in model.base_model.model.decoder.named_parameters():
+        print(f"Setting trainable: {name}")
+        param.requires_grad = True
     

@@ -8,7 +8,7 @@ from functools import partial
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 from otdd.pytorch.distance import DatasetDistance, FeatureCost
 from utils import count_params, count_trainable_params, calculate_stats
-from task_configs import get_data, get_optimizer_scheduler
+from task_configs import get_data, get_optimizer_scheduler, set_decoder_trainable
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy
 from peft import LoraConfig, get_peft_model
@@ -96,10 +96,10 @@ class wrapper2DLORA(torch.nn.Module):
         self.output_raw = True
         
         lora_config = LoraConfig(
-           r= 1,  # Rank of the LoRA matrices
+           r= 4,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key"],  # Apply LoRA on specific modules
-           lora_dropout=0.1,  # Dropout for LoRA layers
+           target_modules=["query", "value", "key", "projection","dense" ],  # Apply LoRA on specific modules
+           lora_dropout= 0,  # Dropout for LoRA layers
          )
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
@@ -137,7 +137,7 @@ class wrapper2DLORA(torch.nn.Module):
         
         #LoRA 
         self.model  = get_peft_model(self.model, lora_config)
-
+        #set_decoder_trainable(self.model)
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
             embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
@@ -245,10 +245,11 @@ class wrapper1DLORA(torch.nn.Module):
         self.weight = weight
         self.output_shape = output_shape
         lora_config = LoraConfig(
-           r= 1,  # Rank of the LoRA matrices
+           r= 4,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key" ],  # Apply LoRA on specific modules
-           lora_dropout=0.1,  # Dropout for LoRA layers
+           target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
+           lora_dropout= 0,  # Dropout for LoRA layers  # Apply LoRA on specific modules
+           
          )
         if isinstance(output_shape, tuple):
             self.dense = True
@@ -460,6 +461,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
     #get all path model.
     tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     tgt_model = tgt_model.to(args.device).train()
+    
     print("Wrapper_func : ")
     print("all param count:", count_params(tgt_model))
     print("trainabel params count :  ",count_trainable_params(tgt_model))

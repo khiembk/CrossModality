@@ -154,7 +154,8 @@ def main(use_determined, args, info=None, context=None):
             test_scores.append(test_score)
 
             print("[test best-validated]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
-            logging.info("[test best-validated]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
+            logging.info("[test best-validated]\ttime elapsed: %.4f\ttest loss: %.4f\ttest score: %.4f" % (test_time_end - test_time_start, test_loss, test_score))
+
             if use_determined:
                 checkpoint_metadata = {"steps_completed": (ep + 1) * n_train, "epochs": ep}
                 with context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
