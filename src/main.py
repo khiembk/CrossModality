@@ -16,7 +16,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
 
 
-def main(use_determined, args, info=None, context=None):
+def main(use_determined ,args,info=None, context=None, lora_rank=1):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     root = '/datasets' if use_determined else './datasets'
@@ -25,7 +25,7 @@ def main(use_determined, args, info=None, context=None):
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
-    logging.basicConfig(filename='app.log',  # File to write logs to
+    logging.basicConfig(filename= f"lora{lora_rank}_{args.dataset}.log",  # File to write logs to
                     level=logging.DEBUG,  # Set logging level
                     format='%(asctime)s - %(levelname)s - %(message)s') 
     if args.reproducibility:
@@ -33,14 +33,14 @@ def main(use_determined, args, info=None, context=None):
         cudnn.benchmark = False
     else:
         cudnn.benchmark = True
-
+    
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
     # embedder trained or not
     if load_embedder(use_determined, args):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss, False, use_determined, context)
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context)
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
@@ -91,7 +91,7 @@ def main(use_determined, args, info=None, context=None):
     print("trainabel params count: %d  ",count_trainable_params(model))
     logging.info("trainabel params count:  %d  ",count_trainable_params(model))
     print(model)
-    
+    logging.info(f"Model Structure:\n{model}")
     model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
     embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     train_time = []
@@ -161,7 +161,7 @@ def main(use_determined, args, info=None, context=None):
                 with context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
                     np.save(os.path.join(path, 'test_score.npy'), test_scores)
             else:
-                path = 'results/'  + args.dataset +'/' + str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
+                path = 'results/'  + args.dataset +'/' + "lora"+ str(lora_rank)+ str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
                 np.save(os.path.join(path, 'test_score.npy'), test_scores)
 
            
@@ -400,9 +400,10 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
-    
+    parser.add_argument('--lora_rank', type= int, default= 1, help='LORA rank')
 
     args = parser.parse_args()
+    lora_rank = args.lora_rank
     if args.config is not None:     
         import yaml
 
@@ -422,4 +423,4 @@ if __name__ == '__main__':
         #args = AttrDict(info.trial.hparams)
         args = SimpleNamespace(**info.trial.hparams)
         with det.core.init() as context:
-            main(True, args, info, context)
+            main(True,args ,info, context, lora_rank= lora_rank)

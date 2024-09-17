@@ -90,13 +90,13 @@ class wrapper2D(torch.nn.Module):
         return self.predictor(x)
 
 class wrapper2DLORA(torch.nn.Module): 
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1):
+    def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
         
         lora_config = LoraConfig(
-           r= 4,  # Rank of the LoRA matrices
+           r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
            target_modules=["query", "value", "key", "projection","dense" ],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers
@@ -137,7 +137,7 @@ class wrapper2DLORA(torch.nn.Module):
         
         #LoRA 
         self.model  = get_peft_model(self.model, lora_config)
-        #set_decoder_trainable(self.model)
+        set_decoder_trainable(self.model)
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
             embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
@@ -237,7 +237,7 @@ class wrapper1D(torch.nn.Module):
         return x
 
 class wrapper1DLORA(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
+    def __init__(self, input_shape, output_shape, lora_rank = 1 ,use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
         super().__init__()
 
         self.dense = False
@@ -245,7 +245,7 @@ class wrapper1DLORA(torch.nn.Module):
         self.weight = weight
         self.output_shape = output_shape
         lora_config = LoraConfig(
-           r= 4,  # Rank of the LoRA matrices
+           r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
            target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers  # Apply LoRA on specific modules
@@ -415,7 +415,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
+def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -459,7 +459,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
 
     wrapper_func = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
     #get all path model.
-    tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    tgt_model = wrapper_func(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     tgt_model = tgt_model.to(args.device).train()
     
     print("Wrapper_func : ")
