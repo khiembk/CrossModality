@@ -161,7 +161,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
                 with context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
                     np.save(os.path.join(path, 'test_score.npy'), test_scores)
             else:
-                path = 'results/'  + args.dataset +'/' + "lora"+ str(lora_rank)+ str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
+                path = 'results/'  + args.dataset +'/' + str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
                 np.save(os.path.join(path, 'test_score.npy'), test_scores)
 
            
@@ -412,7 +412,8 @@ if __name__ == '__main__':
             #with open('configs/cifar100.yaml', 'r') as stream:
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
-            main(False, args)
+            args.experiment_id = lora_rank
+            main(False, args, lora_rank= lora_rank)
 
     else:
         import determined as det
@@ -422,5 +423,7 @@ if __name__ == '__main__':
         info = det.get_cluster_info()
         #args = AttrDict(info.trial.hparams)
         args = SimpleNamespace(**info.trial.hparams)
+        args.experiment_id = lora_rank
+        print("my lora rank: ", lora_rank)
         with det.core.init() as context:
             main(True,args ,info, context, lora_rank= lora_rank)
