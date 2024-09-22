@@ -137,7 +137,9 @@ class wrapper2DLORA(torch.nn.Module):
         
         #LoRA 
         self.model  = get_peft_model(self.model, lora_config)
-        set_decoder_trainable(self.model)
+        if not self.classification : 
+            set_decoder_trainable(self.model)
+        
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
             embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
@@ -457,9 +459,15 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
     tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
 
-    wrapper_func = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+    
+    if (lora_rank == -1):
+        wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
+        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    else :
+        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)    
     #get all path model.
-    tgt_model = wrapper_func(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    
     tgt_model = tgt_model.to(args.device).train()
     
     print("Wrapper_func : ")
