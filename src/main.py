@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn # type: ignore
 from timeit import default_timer
+from tqdm import tqdm
 #from attrdict import AttrDict
 import yaml
 from types import SimpleNamespace
@@ -216,7 +217,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
             scheduler.step()
 
         train_loss += l.item()
-
+        tqdm.write(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
         if i >= temp - 1:
             break
 
