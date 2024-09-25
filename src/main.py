@@ -8,6 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn # type: ignore
 from timeit import default_timer
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 #from attrdict import AttrDict
 import yaml
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
 
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1):
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora'):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     root = '/datasets' if use_determined else './datasets'
@@ -41,7 +42,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context)
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode)
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
@@ -49,10 +50,10 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
     metric, compare_metrics = get_metric(root, args.dataset)
     decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 
-    
+    print("before load state")
     model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, model, None, None, n_train, freq=args.validation_freq, test=True)
     embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
-      
+    print("load state ")  
     offset = 0 if ep_start == 0 else 1
     print("before get optimizer scheduler : ")
     print("all param count:", count_params(model))
@@ -91,6 +92,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
     logging.info("all param count: %d", count_params(model))
     print("trainabel params count: %d  ",count_trainable_params(model))
     logging.info("trainabel params count:  %d  ",count_trainable_params(model))
+    print("print model")
     print(model)
     logging.info(f"Model Structure:\n{model}")
     model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
@@ -106,7 +108,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
 
         time_start = default_timer()
 
-        train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform)
+        train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
         train_time_ep = default_timer() -  time_start 
 
         if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
@@ -171,10 +173,9 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1):
             return
 
 
-def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
 
-    model.train()
-                    
+    model.train()             
     train_loss = 0
     optimizer.zero_grad()
 
@@ -202,7 +203,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
 
         if args.dataset[:4] == "DRUG":
             out = out.squeeze(1)
-
+        
         l = loss(out, y)
         l.backward()
 
@@ -211,13 +212,15 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
 
         if (i + 1) % args.accum == 0:
             optimizer.step()
+            if (mode == 'ada') :
+                model.model.update_and_allocate(i)
             optimizer.zero_grad()
         
         if args.lr_sched_iter:
             scheduler.step()
 
         train_loss += l.item()
-        tqdm.write(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
+        print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
         if i >= temp - 1:
             break
 
@@ -333,7 +336,8 @@ def save_with_path(path, args, model, optimizer, scheduler, train_score, train_l
 
     rng_state_dict = {
                 'cpu_rng_state': torch.get_rng_state(),
-                'gpu_rng_state': torch.cuda.get_rng_state(),
+                'gpu_rng_state': torch.get_rng_state(),
+                # work around for new server
                 'numpy_rng_state': np.random.get_state(),
                 'py_rng_state': random.getstate()
             }
@@ -402,9 +406,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
     parser.add_argument('--lora_rank', type= int, default= 1, help='LORA rank')
-
+    parser.add_argument('--mode', type= str, default= None, help='mode for ada or lora')
     args = parser.parse_args()
     lora_rank = args.lora_rank
+    mode = args.mode 
+    print("current mode: ", mode)
     if args.config is not None:     
         import yaml
 
@@ -414,7 +420,7 @@ if __name__ == '__main__':
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
             args.experiment_id = lora_rank
-            main(False, args, lora_rank= lora_rank)
+            main(False, args, lora_rank= lora_rank, mode= mode)
 
     else:
         import determined as det
@@ -427,4 +433,4 @@ if __name__ == '__main__':
         args.experiment_id = lora_rank
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
-            main(True,args ,info, context, lora_rank= lora_rank)
+            main(True,args ,info, context, lora_rank= lora_rank, mode = mode)

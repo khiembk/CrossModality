@@ -11,7 +11,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from task_configs import get_data, get_optimizer_scheduler, set_decoder_trainable
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, AdaLoraModel, AdaLoraConfig
 
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
@@ -32,7 +32,70 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     d = dist.distance(maxsamples = len(src_train_dataset))
     return d
 
+class wrapper2DAda(torch.nn.Module):
+    def __init__(self, input_shape, output_shape, use_embedder=True, lora_rank = 8 ,weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False):
+        super().__init__()
+        self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
+        self.output_raw = True
+        Adaconfig = AdaLoraConfig(
+        peft_type="ADALORA",  target_r = lora_rank , init_r= 16, lora_alpha=32, tinit =0, tfinal = 130,
+        target_modules=["query", "value", "key" ],
+        lora_dropout=0, total_step = 250
+        )
+        if weight == 'tiny':
+            arch_name = "microsoft/swin-tiny-patch4-window7-224"
+            embed_dim = 96
+            output_dim = 768
+            img_size = 224
+        elif weight == 'base':
+            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+            embed_dim = 128
+            output_dim = 1024
+            img_size = 224
+            patch_size = 4
 
+        if self.classification:
+            modelclass = SwinForImageClassification
+        else:
+            modelclass = SwinForMaskedImageModeling
+            
+        self.model = modelclass.from_pretrained(arch_name)
+        self.model.config.image_size = img_size
+        if drop_out is not None:
+            self.model.config.hidden_dropout_prob = drop_out 
+            self.model.config.attention_probs_dropout_prob = drop_out
+
+        self.model = modelclass.from_pretrained(arch_name, config=self.model.config) if not from_scratch else modelclass(self.model.config)
+        
+        if self.classification:
+            self.model.pooler = nn.AdaptiveAvgPool1d(1)
+            self.model.classifier = nn.Identity()
+            self.predictor = nn.Linear(in_features=output_dim, out_features=output_shape)
+        else:
+            self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
+            self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
+            self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
+        
+        self.model = AdaLoraModel(self.model, Adaconfig, "Adamodel")
+        
+        for name, param in self.model.decoder.named_parameters():
+            print(f"Setting trainable: {name}")
+            param.requires_grad = True
+        if use_embedder:
+            self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
+            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            # compute grad embedder 
+            set_grad_state(self.embedder, True)
+            self.model.swin.embeddings = self.embedder  
+
+
+    def forward(self, x):
+        
+        if self.output_raw:
+            return self.model.swin.embeddings(x)[0]
+        x = self.model(x).logits
+        return self.predictor(x)
+    
 class wrapper2D(torch.nn.Module):
     def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False):
         super().__init__()
@@ -180,7 +243,8 @@ class wrapper1D(torch.nn.Module):
                 configuration.hidden_dropout_prob = drop_out
                 configuration.attention_probs_dropout_prob = drop_out
             self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
-
+            
+        print("nomal 1D lora ",count_params(self.model))
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
             embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
@@ -205,7 +269,8 @@ class wrapper1D(torch.nn.Module):
 
         if activation == 'sigmoid':
             self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())  
-            
+
+        print("final 1D nomal",count_params(self.model))    
             
         # self.model is body model     
         #set_grad_state(self.model, False)
@@ -268,9 +333,8 @@ class wrapper1DLORA(torch.nn.Module):
                 configuration.hidden_dropout_prob = drop_out
                 configuration.attention_probs_dropout_prob = drop_out
             self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
-        #LORA
-        self.model  = get_peft_model(self.model, lora_config)    
         
+
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
             embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
@@ -296,7 +360,16 @@ class wrapper1DLORA(torch.nn.Module):
         if activation == 'sigmoid':
             self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())
               
-        
+        #LORA
+        print("before call lora: ",count_params(self.model))
+        self.model  = get_peft_model(self.model, lora_config)
+        print("after call lora: ",count_params(self.model))    
+        if weight != 'swin' :
+            print("call if")
+            for name, param in self.model.named_parameters():
+                if name in self.model.base_model.model.pooler.named_parameters() :
+                   print("set trainable for:", name)
+                   param.requires_grad = True
         
 
 
@@ -417,7 +490,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0):
+def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora'):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -464,8 +537,15 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
         tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     else :
-        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
-        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)    
+        if (mode != 'ada'):
+            print("this mode", mode)
+            print("call lora")
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+            tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)   
+        else :
+            print("call ada")
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DAda
+            tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)        
     #get all path model.
     
     tgt_model = tgt_model.to(args.device).train()
