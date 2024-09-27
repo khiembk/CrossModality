@@ -16,7 +16,7 @@ from torch.utils.data import Dataset, IterableDataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+#device = 'cuda'
 """Data Loaders"""
 
 from PIL import Image

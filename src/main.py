@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn # type: ignore
 from timeit import default_timer
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+
 #from attrdict import AttrDict
 import yaml
 from types import SimpleNamespace
@@ -21,6 +21,8 @@ from embedder import get_tgt_model
 def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora'):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #args.device = 'cuda' 
+    print("The current device is: ", args.device)
     root = '/datasets' if use_determined else './datasets'
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)
@@ -158,6 +160,8 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
 
             print("[test best-validated]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
             logging.info("[test best-validated]\ttime elapsed: %.4f\ttest loss: %.4f\ttest score: %.4f" % (test_time_end - test_time_start, test_loss, test_score))
+            if (mode == "ada"):
+                logging.info(f"Affter fix Structure:\n{model}")
 
             if use_determined:
                 checkpoint_metadata = {"steps_completed": (ep + 1) * n_train, "epochs": ep}
@@ -383,11 +387,11 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
         optimizer.load_state_dict(model_state_dict['optimizer_state_dict'])
         scheduler.load_state_dict(model_state_dict['scheduler_state_dict'])
 
-        rng_state_dict = torch.load(os.path.join(path, 'rng_state.ckpt'), map_location='cpu')
-        torch.set_rng_state(rng_state_dict['cpu_rng_state'])
-        torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
-        np.random.set_state(rng_state_dict['numpy_rng_state'])
-        random.setstate(rng_state_dict['py_rng_state'])
+        # rng_state_dict = torch.load(os.path.join(path, 'rng_state.ckpt'), map_location='cpu')
+        # torch.set_rng_state(rng_state_dict['cpu_rng_state'])
+        # torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
+        # np.random.set_state(rng_state_dict['numpy_rng_state'])
+        # random.setstate(rng_state_dict['py_rng_state'])
 
         if use_determined: 
             try:
@@ -405,8 +409,8 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--lora_rank', type= int, default= 1, help='LORA rank')
-    parser.add_argument('--mode', type= str, default= None, help='mode for ada or lora')
+    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
+    parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     mode = args.mode 

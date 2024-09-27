@@ -38,9 +38,9 @@ class wrapper2DAda(torch.nn.Module):
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
         Adaconfig = AdaLoraConfig(
-        peft_type="ADALORA",  target_r = lora_rank , init_r= 16, lora_alpha=32, tinit =0, tfinal = 130,
-        target_modules=["query", "value", "key" ],
-        lora_dropout=0, total_step = 250
+        peft_type="ADALORA",  target_r = lora_rank , init_r= 10, lora_alpha=32, tinit =0, tfinal = 130,
+        target_modules=["query", "value", "key", "dense" ],
+        lora_dropout=0, total_step = 250, deltaT = 10
         )
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
