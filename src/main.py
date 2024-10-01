@@ -29,7 +29,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
-    logging.basicConfig(filename= f"lora{lora_rank}_{args.dataset}.log",  # File to write logs to
+    logging.basicConfig(filename= f"lora{args.experiment_id}_{args.dataset}.log",  # File to write logs to
                     level=logging.DEBUG,  # Set logging level
                     format='%(asctime)s - %(levelname)s - %(message)s') 
     if args.reproducibility:
@@ -424,6 +424,8 @@ if __name__ == '__main__':
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
             args.experiment_id = lora_rank
+            if (mode == 'from_scratch'):
+                args.experiment_id = -2
             main(False, args, lora_rank= lora_rank, mode= mode)
 
     else:
@@ -435,6 +437,8 @@ if __name__ == '__main__':
         #args = AttrDict(info.trial.hparams)
         args = SimpleNamespace(**info.trial.hparams)
         args.experiment_id = lora_rank
+        if (mode == 'from_scratch'):
+            args.experiment_id = -2
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
             main(True,args ,info, context, lora_rank= lora_rank, mode = mode)

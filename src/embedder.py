@@ -101,7 +101,8 @@ class wrapper2D(torch.nn.Module):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-
+        if (from_scratch):
+            print("random init model")
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
             embed_dim = 96
@@ -230,7 +231,8 @@ class wrapper1D(torch.nn.Module):
         
         if isinstance(output_shape, tuple):
             self.dense = True
-
+        if (from_scratch):
+            print("randominit model")
         if weight =='swin':
             self.model = SwinForImageClassification.from_pretrained("microsoft/swin-base-patch4-window7-224-in22k") if not from_scratch else SwinForImageClassification()
             self.model.pooler = nn.AdaptiveAvgPool1d(1)
@@ -534,8 +536,11 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
     
     if (lora_rank == -1):
+        from_scratch = False
+        if (mode == 'from_scratch'):
+            from_scratch = True
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch)
     else :
         if (mode != 'ada'):
             print("this mode", mode)
