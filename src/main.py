@@ -426,6 +426,8 @@ if __name__ == '__main__':
             args.experiment_id = lora_rank
             if (mode == 'from_scratch'):
                 args.experiment_id = -2
+            if (args.embedder_epochs > 0):
+                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)    
             main(False, args, lora_rank= lora_rank, mode= mode)
 
     else:
