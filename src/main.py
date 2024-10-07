@@ -411,8 +411,10 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default=None, help='config file name')
     parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
     parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
+    parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     args = parser.parse_args()
     lora_rank = args.lora_rank
+    embedder_ep = args.embedder_ep
     mode = args.mode 
     print("current mode: ", mode)
     if args.config is not None:     
@@ -424,6 +426,8 @@ if __name__ == '__main__':
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
             args.experiment_id = lora_rank
+            if (embedder_ep != None): 
+                args.embedder_epochs = embedder_ep
             if (mode == 'from_scratch'):
                 args.experiment_id = -2
             if (args.embedder_epochs > 0):
@@ -439,6 +443,8 @@ if __name__ == '__main__':
         #args = AttrDict(info.trial.hparams)
         args = SimpleNamespace(**info.trial.hparams)
         args.experiment_id = lora_rank
+        if (embedder_ep != None): 
+                args.embedder_epochs = embedder_ep
         if (args.embedder_epochs > 0):
             args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
         if (mode == 'from_scratch'):
