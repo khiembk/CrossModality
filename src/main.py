@@ -18,7 +18,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
 
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None):
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
@@ -33,7 +33,14 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
-    logging.basicConfig(filename= f"lora{args.experiment_id}_{args.dataset}_{args.finetune_method}.log",  # File to write logs to
+
+    log_file = f"lora{args.experiment_id}_{args.dataset}_{args.finetune_method}.log"
+    if (log_folder is not None):
+        log_dir = os.path.join(log_folder)
+        os.makedirs(log_dir, exist_ok= True)
+        log_file = os.path.join(log_dir, f"lora{args.experiment_id}_{args.dataset}_{args.finetune_method}.log")
+
+    logging.basicConfig(filename= log_file,
                     level=logging.DEBUG,  # Set logging level
                     format='%(asctime)s - %(levelname)s - %(message)s') 
     if args.reproducibility:
@@ -421,12 +428,14 @@ if __name__ == '__main__':
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
+    parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
     save_per_ep = args.save_per_ep
     mode = args.mode 
     root_dataset = args.root_dataset
+    log_folder = args.log_folder
     print("current mode: ", mode)
     if args.config is not None:     
         import yaml
@@ -444,7 +453,7 @@ if __name__ == '__main__':
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
                      
-            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset)
+            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder)
 
     else:
         import determined as det
@@ -463,4 +472,4 @@ if __name__ == '__main__':
             args.experiment_id = -2
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
-            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset)
+            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder)

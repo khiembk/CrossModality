@@ -19,3 +19,12 @@
        # x: embedder epochs, it should be 0 or 60    
 #  2.4 Train from scratch: 
        python main.py --config configs/task.yaml --mode from_scratch --root_dataset path/parent/of/dataset
+# 3. Hyper-parameter:
+   parser = argparse.ArgumentParser(description='ORCA')
+   parser.add_argument('--config', type=str, default=None, help='config file name')
+   parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
+   parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
+   parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
+   parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
+   parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
+   parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
