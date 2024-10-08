@@ -18,12 +18,16 @@ from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
 
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora'):
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
     print("The current device is: ", args.device)
     root = '/datasets' if use_determined else './datasets'
+    if (DatasetRoot != None):
+        root = DatasetRoot + '/datasets'
+
+    print("Path folder dataset: ",root) 
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -126,8 +130,10 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
             "[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
             "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
              val_loss, val_score,compare_metrics(train_score))
-            if use_determined:
-                id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
+            if use_determined :
+                if ep % save_per_ep ==0 :
+                   print("save state at epoch ep: ", ep)
+                   id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 try:
                     context.train.report_training_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"train loss": train_loss, "epoch time": train_time_ep})
                     context.train.report_validation_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"val score": val_score})
@@ -135,7 +141,8 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
                     pass
                     
             if compare_metrics(train_score) == val_score:
-                if not use_determined:
+                if not use_determined and ep % save_per_ep == 0:
+                    print("save state at epoch ep: ", ep)
                     id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 id_best = id_current
             
@@ -412,10 +419,14 @@ if __name__ == '__main__':
     parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
     parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
+    parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
+    parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
+    save_per_ep = args.save_per_ep
     mode = args.mode 
+    root_dataset = args.root_dataset
     print("current mode: ", mode)
     if args.config is not None:     
         import yaml
@@ -431,8 +442,9 @@ if __name__ == '__main__':
             if (mode == 'from_scratch'):
                 args.experiment_id = -2
             if (args.embedder_epochs > 0):
-                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)    
-            main(False, args, lora_rank= lora_rank, mode= mode)
+                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+                     
+            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset)
 
     else:
         import determined as det
@@ -451,4 +463,4 @@ if __name__ == '__main__':
             args.experiment_id = -2
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
-            main(True,args ,info, context, lora_rank= lora_rank, mode = mode)
+            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset)
