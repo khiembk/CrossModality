@@ -55,7 +55,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode)
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging)
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    

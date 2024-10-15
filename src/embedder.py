@@ -492,7 +492,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora'):
+def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -612,7 +612,10 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         # embedder_stats is loss and time
         embedder_stats.append([total_losses[-1], times[-1]])
         print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
-       
+        if (logging is not None):
+            log_message = "[train embedder %d %.6f] time elapsed: %.4f\ttotal loss: %.4f" % (
+           ep, tgt_model_optimizer.param_groups[0]['lr'], times[-1], total_losses[-1] )
+            logging.info(log_message)
         tgt_model_optimizer.step()
         tgt_model_scheduler.step()
         tgt_model_optimizer.zero_grad()
