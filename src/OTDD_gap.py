@@ -44,38 +44,38 @@ tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, tgt_class
 
 print("src feat shape", src_feats.shape, src_ys.shape)
 
-wrapper_func = wrapper1D 
-dims, sample_shape, num_classes = 1, (1, 1, 1000), 4
-tgt_model = wrapper_func(sample_shape, num_classes, 'roberta', train_epoch= 60, activation= None, target_seq_len= 512, from_scratch= False)
-tgt_model = tgt_model.to('cuda').train()
+# wrapper_func = wrapper1D 
+# dims, sample_shape, num_classes = 1, (1, 1, 1000), 4
+# tgt_model = wrapper_func(sample_shape, num_classes, 'roberta', train_epoch= 60, activation= None, target_seq_len= 512, from_scratch= False)
+# tgt_model = tgt_model.to('cuda').train()
 
 
-total_loss = 0
-for i in np.random.permutation(tgt_class):
-            feats = []
-            datanum = 0
+# total_loss = 0
+# for i in np.random.permutation(tgt_class):
+#             feats = []
+#             datanum = 0
 
-            for j, data in enumerate(tgt_train_loaders[i]):
+#             for j, data in enumerate(tgt_train_loaders[i]):
                 
-                if transform is not None:
-                    x, y, z = data
-                else:
-                    x, y = data 
+#                 if transform is not None:
+#                     x, y, z = data
+#                 else:
+#                     x, y = data 
                 
-                x = x.to('cuda')
-                out = tgt_model(x)
-                feats.append(out)
+#                 x = x.to('cuda')
+#                 out = tgt_model(x)
+#                 feats.append(out)
                 
-                datanum += x.shape[0]
+#                 datanum += x.shape[0]
                 
-                if datanum > 1000: break
+#                 if datanum > 1000: break
 
-            feats = torch.cat(feats, 0).mean(1)
-            print("target shape: ", feats.shape)
-            if feats.shape[0] > 1:
-                loss = tgt_class_weights[i] * otdd(feats=feats, src_train_dataset= src_train_dataset)
-                print("loss at class:",loss)
-                total_loss += loss.item()
+#             feats = torch.cat(feats, 0).mean(1)
+#             print("target shape: ", feats.shape)
+#             if feats.shape[0] > 1:
+#                 loss = tgt_class_weights[i] * otdd(feats=feats, src_train_dataset= src_train_dataset)
+#                 print("loss at class:",loss)
+#                 total_loss += loss.item()
 
-print(f'OTDD_loss = ', total_loss)
+# print(f'OTDD_loss = ', total_loss)
 
