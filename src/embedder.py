@@ -97,12 +97,11 @@ class wrapper2DAda(torch.nn.Module):
         return self.predictor(x)
     
 class wrapper2D(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-        if (from_scratch):
-            print("random init model")
+
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
             embed_dim = 96
@@ -136,25 +135,28 @@ class wrapper2D(torch.nn.Module):
             self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
             self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
-        
+
+        # set_grad_state(self.model, False)
+        # set_grad_state(self.predictor, False)
 
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
-            # compute grad embedder 
+            if warm_init :
+                embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
 
     def forward(self, x):
-        
         if self.output_raw:
             return self.model.swin.embeddings(x)[0]
+            
         x = self.model(x).logits
+
         return self.predictor(x)
 
 class wrapper2DLORA(torch.nn.Module): 
-    def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1):
+    def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1, warm_init = True):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
@@ -206,7 +208,8 @@ class wrapper2DLORA(torch.nn.Module):
         
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            if warm_init :
+                 embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
             # compute grad embedder 
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
@@ -221,7 +224,7 @@ class wrapper2DLORA(torch.nn.Module):
              
 
 class wrapper1D(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True):
         super().__init__()
 
         self.dense = False
@@ -249,7 +252,8 @@ class wrapper1D(torch.nn.Module):
         print("nomal 1D lora ",count_params(self.model))
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            if warm_init :
+                embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
@@ -306,7 +310,7 @@ class wrapper1D(torch.nn.Module):
         return x
 
 class wrapper1DLORA(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, lora_rank = 1 ,use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
+    def __init__(self, input_shape, output_shape, lora_rank = 1 ,use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True):
         super().__init__()
 
         self.dense = False
@@ -339,7 +343,8 @@ class wrapper1DLORA(torch.nn.Module):
 
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            if warm_init :
+                 embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
@@ -492,7 +497,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None):
+def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -507,7 +512,9 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
             x_, y_ = data 
             x_ = x_.to(args.device)
             x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            
             out = src_model(x_)
+            
             if len(out.shape) > 2:
                 out = out.mean(1)
 
@@ -540,13 +547,13 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         if (mode == 'from_scratch'):
             from_scratch = True
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch)
+        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
     else :
         if (mode != 'ada'):
             print("this mode", mode)
             print("call lora")
             wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
-            tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)   
+            tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init)   
         else :
             print("call ada")
             wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DAda
