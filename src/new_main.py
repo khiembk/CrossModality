@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
 from utils import count_params, count_trainable_params, calculate_stats
-from embedder import get_tgt_model
+from new_embedder import get_tgt_model
 
 
 def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True):
@@ -475,3 +475,4 @@ if __name__ == '__main__':
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
             main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init)
+
