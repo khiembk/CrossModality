@@ -460,12 +460,14 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         src_feats = torch.cat(src_feats, 0)
         src_ys = torch.cat(src_ys, 0).long()
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
-        del src_model    
+        del src_model, src_train_loader    
 
     else:
         src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-    print("computing source feature: done")    
+        del src_train_loader
+    print("computing source feature: done")   
+    torch.cuda.empty_cache() 
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
         
@@ -514,6 +516,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     total_losses, times, embedder_stats = [], [], []
     # Train embeder 
     print("Train embedder with ep = ",args.embedder_epochs)
+    args.maxsamples = 64
     for ep in range(args.embedder_epochs):   
 
         total_loss = 0    
@@ -566,7 +569,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     return tgt_model, embedder_stats
 
 def Compute_text_feature():
-    return True
+    return None
 def infer_labels(loader, k = 10):
     from sklearn.cluster import k_means, MiniBatchKMeans
     
