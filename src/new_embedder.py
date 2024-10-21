@@ -512,6 +512,10 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     else:
         score_func = MMD_loss(src_data=src_feats, maxsamples=args.maxsamples)
     
+    print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+
+
+    print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
     score = 0
     total_losses, times, embedder_stats = [], [], []
     # Train embeder 
@@ -537,7 +541,9 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 out = tgt_model(x)
                 feats.append(out)
                 datanum += x.shape[0]
-                
+                print("at j= ", j)
+                print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
                 if datanum > args.maxsamples: break
 
             feats = torch.cat(feats, 0).mean(1)
