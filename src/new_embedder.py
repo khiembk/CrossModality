@@ -545,7 +545,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 x = x.to(args.device)
                 out = tgt_model(x)
                 print("shape of out: ", out.shape)
-                feats.append(out)
+                feats.append(out.detach())
                 datanum += x.shape[0]
                 print("at j= ", j)
                 print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
