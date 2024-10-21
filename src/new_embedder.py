@@ -21,7 +21,11 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
         ys = torch.from_numpy(ys).long().to('cpu')
 
     dataset = torch.utils.data.TensorDataset(feats, ys)
+    x1_shape = next(iter(src_train_dataset))[0].shape
+    x2_shape = next(iter(dataset))[0].shape
 
+    print(f"Source dataset shape: {x1_shape}")
+    print(f"Target dataset shape: {x2_shape}")
     dist = DatasetDistance(src_train_dataset, dataset,
                                     inner_ot_method = 'exact' if exact else 'gaussian_approx',
                                     debiased_loss = True, inner_ot_debiased=True,
