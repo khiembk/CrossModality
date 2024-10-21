@@ -153,8 +153,12 @@ class wrapper2DLORA(torch.nn.Module):
     def forward(self, x):
         
         if self.output_raw:
-            return self.model(x).logits
-
+            if self.classification:
+                return self.model(x).logits
+            else:
+                out1 = self.model(x).logits
+                return self.pool_seq_dim(out1) 
+                
         x = self.model(x).logits
         return self.predictor(x)
              
