@@ -454,7 +454,8 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
             
             if len(out.shape) > 2:
                 out = out.mean(1)
-
+            if (i==1):
+                print("shape of source: ", out.shape)
             src_ys.append(y_.detach().cpu())
             src_feats.append(out.detach().cpu())
         src_feats = torch.cat(src_feats, 0)
@@ -529,7 +530,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         for i in np.random.permutation(num_classes_new):
             feats = []
             datanum = 0
-            print("len of one class: ",len(tgt_train_loader[i]))
+            #print("len of one class: ",len(tgt_train_loader[i]))
             for j, data in enumerate(tgt_train_loaders[i]):
                 
                 if transform is not None:
