@@ -556,7 +556,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
                 print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
                 if datanum > args.maxsamples: break
-
+            print("tgt_feats_shape_before : ",feats.shape)
             feats = torch.cat(feats, 0).mean(1)
             if feats.shape[0] > 1:
                 print("tgt_feats_shape: ",feats.shape)
