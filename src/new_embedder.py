@@ -93,7 +93,14 @@ class wrapper2D(torch.nn.Module):
 
     def forward(self, x):
         if self.output_raw:
-            return self.model(x).logits
+            if self.classification:
+                return self.model(x).logits
+            else:
+                embedding_output, input_dimensions = self.model.swin.embeddings(x)
+                encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
+                output_affterEncodder =  encodder_output.last_hidden_state
+                return self.pool_seq_dim(output_affterEncodder)
+
             
         x = self.model(x).logits
 
