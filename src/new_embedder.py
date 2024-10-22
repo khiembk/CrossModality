@@ -162,9 +162,9 @@ class wrapper2DLORA(torch.nn.Module):
             else:
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
-                
-                return  encodder_output.last_hidden_state
-                
+                output_affterEncodder =  encodder_output.last_hidden_state
+                return self.pool_seq_dim(output_affterEncodder)
+
         x = self.model(x).logits
         return self.predictor(x)
              
@@ -551,8 +551,6 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 x = x.to(args.device)
                 out = tgt_model(x)
                 
-                if len(out.shape) > 2:
-                    out = out.mean(1)
                 print("shape of out: ", out.shape)    
                 feats.append(out)
                 datanum += x.shape[0]
