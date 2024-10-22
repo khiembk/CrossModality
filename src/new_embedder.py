@@ -475,7 +475,8 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
         del src_train_loader
-    print("computing source feature: done")   
+    print("computing source feature: done")  
+    print("src_train_dataset_x_shape: ", next(iter(src_train_dataset))[0].shape) 
     torch.cuda.empty_cache() 
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
@@ -558,6 +559,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
             feats = torch.cat(feats, 0).mean(1)
             if feats.shape[0] > 1:
+                print("tgt_feats_shape: ",feats.shape)
                 loss = tgt_class_weights[i] * score_func(feats)
                 loss.backward()
                 total_loss += loss.item()
