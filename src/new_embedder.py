@@ -160,10 +160,8 @@ class wrapper2DLORA(torch.nn.Module):
             if self.classification:
                 return self.model(x).logits
             else:
-                # out1 = self.model(x).logits
-                # return self.pool_seq_dim(out1) 
-                x = self.model.swin.embeddings(x)[0]
-                encodder_output = self.model.swin.encoder(x)
+                embedding_output, input_dimensions = self.model.swin.embeddings(x)
+                encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
                 return encodder_output
                 
         x = self.model(x).logits
