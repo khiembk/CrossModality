@@ -24,8 +24,8 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     x1_shape = next(iter(src_train_dataset))[0].shape
     x2_shape = next(iter(dataset))[0].shape
 
-    # print(f"Source dataset shape: {x1_shape}")
-    # print(f"Target dataset shape: {x2_shape}")
+    print(f"Source dataset shape: {x1_shape}")
+    print(f"Target dataset shape: {x2_shape}")
     dist = DatasetDistance(src_train_dataset, dataset,
                                     inner_ot_method = 'exact' if exact else 'gaussian_approx',
                                     debiased_loss = True, inner_ot_debiased=True,
@@ -160,8 +160,11 @@ class wrapper2DLORA(torch.nn.Module):
             if self.classification:
                 return self.model(x).logits
             else:
-                out1 = self.model(x).logits
-                return self.pool_seq_dim(out1) 
+                # out1 = self.model(x).logits
+                # return self.pool_seq_dim(out1) 
+                x = self.model.swin.embeddings(x)[0]
+                encodder_output = self.model.swin.encoder(x)
+                return encodder_output
                 
         x = self.model(x).logits
         return self.predictor(x)
@@ -539,7 +542,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         for i in np.random.permutation(num_classes_new):
             feats = []
             datanum = 0
-            #print("len of one class: ",len(tgt_train_loader[i]))
+            print("len of one class: ",len(tgt_train_loader[i]))
             for j, data in enumerate(tgt_train_loaders[i]):
                 
                 if transform is not None:
@@ -552,15 +555,15 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 
                 # if len(out.shape) > 2:
                 #     out = out.mean(1)
-                # print("shape of out: ", out.shape)    
+                print("shape of out: ", out.shape)    
                 feats.append(out)
                 datanum += x.shape[0]
-                # print("at j= ", j)
-                # print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                # print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+                print("at j= ", j)
+                print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
                 if datanum > args.maxsamples: break
-            # print("len of tgt feats: ", len(feats))
-            # print("shape of one ele in tgt feats: ", feats[0].shape)
+            print("len of tgt feats: ", len(feats))
+            print("shape of one ele in tgt feats: ", feats[0].shape)
             feats = torch.cat(feats, 0)
             if feats.shape[0] > 1:
                 print("tgt_feats_shape: ",feats.shape)
