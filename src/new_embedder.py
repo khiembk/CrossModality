@@ -96,11 +96,13 @@ class wrapper2D(torch.nn.Module):
         return self.predictor(x)
 
 class wrapper2DLORA(torch.nn.Module): 
-    def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1, warm_init = True):
+    def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1, warm_init = True, classification = None):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
         
+        if (classification != None):
+            self.classification = classification
         lora_config = LoraConfig(
            r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
@@ -450,7 +452,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     if len(sample_shape) == 4:
         IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
             
-        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False)
         src_model = src_model.to(args.device).eval()
             
         src_feats = []
