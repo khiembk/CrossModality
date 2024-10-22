@@ -549,9 +549,10 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 
                 x = x.to(args.device)
                 out = tgt_model(x)
-                print("shape of out: ", out.shape)
+                
                 if len(out.shape) > 2:
                     out = out.mean(1)
+                print("shape of out: ", out.shape)    
                 feats.append(out.detach())
                 datanum += x.shape[0]
                 print("at j= ", j)
