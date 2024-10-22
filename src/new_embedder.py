@@ -37,11 +37,13 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
 
 
 class wrapper2D(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True, classification = None):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-
+        
+        if (classification != None):
+            self.classification = classification
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
             embed_dim = 96
