@@ -238,7 +238,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
             scheduler.step()
 
         train_loss += l.item()
-        print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
+        #print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
         if i >= temp - 1:
             break
 
