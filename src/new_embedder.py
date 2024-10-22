@@ -535,7 +535,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
         total_loss = 0    
         time_start = default_timer()
-
+        args.maxsamples = 40
         for i in np.random.permutation(num_classes_new):
             feats = []
             datanum = 0
@@ -553,7 +553,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 # if len(out.shape) > 2:
                 #     out = out.mean(1)
                 print("shape of out: ", out.shape)    
-                feats.append(out.detach())
+                feats.append(out)
                 datanum += x.shape[0]
                 print("at j= ", j)
                 print(f"Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
