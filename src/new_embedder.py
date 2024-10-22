@@ -162,8 +162,7 @@ class wrapper2DLORA(torch.nn.Module):
             else:
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
-                print("Encoder output components:", encodder_output)
-
+                
                 return  encodder_output.last_hidden_state
                 
         x = self.model(x).logits
