@@ -44,6 +44,8 @@ class wrapper2D(torch.nn.Module):
         
         if (classification != None):
             self.classification = classification
+
+        print("2D classification : ", self.classification)    
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
             embed_dim = 96
