@@ -92,25 +92,17 @@ class wrapper2D(torch.nn.Module):
 
 
     def forward(self, x):
-       print(f"Input shape: {x.shape}")  # Log input shape
+       
        if self.output_raw:
           if self.classification:
                 return self.model(x).logits
           else:
-            # Forward pass through embeddings
             embedding_output, input_dimensions = self.model.swin.embeddings(x)
-            print(f"Embedding output shape: {embedding_output.shape}, Input dimensions: {input_dimensions}")
             
-            # Forward pass through encoder
-            try:
-                encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
-                print(f"Encoder output shape: {encodder_output.last_hidden_state.shape}")
-                
-                output_affterEncodder = encodder_output.last_hidden_state
-                return output_affterEncodder
-            except Exception as e:
-                print(f"Error during encoder forward pass: {e}")
-                raise e
+            encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)    
+            output_affterEncodder = encodder_output.last_hidden_state
+            return output_affterEncodder
+            
 
             
        x = self.model(x).logits
@@ -185,6 +177,7 @@ class wrapper2DLORA(torch.nn.Module):
                 return self.model(x).logits
             else:
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
+                print(f"Embedding output shape: {embedding_output.shape}, Input dimensions: {input_dimensions}")
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
                 output_affterEncodder =  encodder_output.last_hidden_state
                 return output_affterEncodder
