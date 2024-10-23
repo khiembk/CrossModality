@@ -92,21 +92,30 @@ class wrapper2D(torch.nn.Module):
 
 
     def forward(self, x):
-        if self.output_raw:
-            if self.classification:
+       print(f"Input shape: {x.shape}")  # Log input shape
+       if self.output_raw:
+          if self.classification:
                 return self.model(x).logits
-            else:
-                embedding_output, input_dimensions = self.model.swin.embeddings(x)
-                print("embedding output shape : ",embedding_output.shape , "input dim: ", input_dimensions)
+          else:
+            # Forward pass through embeddings
+            embedding_output, input_dimensions = self.model.swin.embeddings(x)
+            print(f"Embedding output shape: {embedding_output.shape}, Input dimensions: {input_dimensions}")
+            
+            # Forward pass through encoder
+            try:
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
-                print("encodder output shape : ",encodder_output.shape )
-                output_affterEncodder =  encodder_output.last_hidden_state
+                print(f"Encoder output shape: {encodder_output.last_hidden_state.shape}")
+                
+                output_affterEncodder = encodder_output.last_hidden_state
                 return output_affterEncodder
+            except Exception as e:
+                print(f"Error during encoder forward pass: {e}")
+                raise e
 
             
-        x = self.model(x).logits
+       x = self.model(x).logits
 
-        return self.predictor(x)
+       return self.predictor(x)
 
 class wrapper2DLORA(torch.nn.Module): 
     def __init__(self, input_shape, output_shape,lora_rank =1 ,use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False , rankLoRA = 1, warm_init = True, classification = None):
