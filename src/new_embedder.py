@@ -11,7 +11,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from task_configs import get_data, get_optimizer_scheduler, set_decoder_trainable
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 from peft import LoraConfig, get_peft_model
-
+from task_configs import get_config
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     ys = torch.zeros(len(feats)) if ys is None else ys
@@ -111,7 +111,7 @@ class wrapper2DLORA(torch.nn.Module):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-        
+        self.train_predictor = False
         if (classification != None):
             self.classification = classification
         lora_config = LoraConfig(
@@ -176,7 +176,14 @@ class wrapper2DLORA(torch.nn.Module):
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
                 output_affterEncodder =  encodder_output.last_hidden_state
-                return self.pool_seq_dim(output_affterEncodder)
+                return output_affterEncodder
+        
+        if self.train_predictor:
+            if self.classification:    
+               return self.predictor(x)
+            else: 
+                decodder_outout = self.model.swin.decoder(x).last_hidden_state
+                return self.predictor(decodder_outout)
 
         x = self.model(x).logits
         return self.predictor(x)
@@ -600,6 +607,94 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
     tgt_model.output_raw = False
     
+    return tgt_model, embedder_stats
+
+def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
+    
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.dataset, args.batch_size, False, maxsize=5000)
+    
+            
+    src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False)
+    src_model = src_model.to(args.device).eval()
+            
+    src_feats = []
+    src_ys = []
+    for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+
+            out = src_model(x_)
+            if (i==1):
+                print("shape of source: ", out.shape)
+            src_ys.append(y_.detach().cpu())
+            src_feats.append(out.detach().cpu())
+    src_feats = torch.cat(src_feats, 0)
+    src_ys = torch.cat(src_ys, 0).long()
+    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+    del src_model, src_train_loader    
+
+    
+    print("computing source feature: done")  
+    print("src_train_dataset_x_shape: ", next(iter(src_train_dataset))[0].shape) 
+    torch.cuda.empty_cache() 
+
+
+    if (lora_rank == -1):
+        from_scratch = False
+        if (mode == 'from_scratch'):
+            from_scratch = True
+        wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
+        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
+    else :
+        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init)   
+        
+    
+    tgt_model = tgt_model.to(args.device).train()
+    tgt_model.output_raw = False
+    tgt_model.train_predictor = True
+
+    print("Wrapper_func : ")
+    print("all param count:", count_params(tgt_model))
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    args, _, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model)
+    tgt_model_optimizer.zero_grad()
+    print("get_optimizer : ")
+    print("all param count:", count_params(tgt_model))
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    if args.objective == 'otdd-exact':
+        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+    elif args.objective == 'otdd-gaussian':
+        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=False)
+    elif args.objective == 'l2':
+        score_func = partial(l2, src_train_dataset=src_train_dataset)
+    else:
+        score_func = MMD_loss(src_data=src_feats, maxsamples=args.maxsamples)
+    
+
+    score = 0
+    total_losses, times, embedder_stats = [], [], []
+    # Train predictor 
+    for ep in range(10):   
+        train_loss = 0
+        tgt_model_optimizer.zero_grad()
+
+        for i, data in enumerate(src_train_dataset):
+            x, y = data 
+        
+            x, y = x.to(args.device), y.to(args.device)
+            out = tgt_model(x)
+            l = loss(out, y)
+            l.backward()
+            tgt_model_optimizer.step()
+            tgt_model_optimizer.zero_grad()
+
+            train_loss += l.item()
+
+        print("at ep: ", ep, "train loss: ", train_loss)
+        tgt_model_scheduler.step()   
+
+    tgt_model.train_predictor = False 
     return tgt_model, embedder_stats
 
 def Compute_text_feature():

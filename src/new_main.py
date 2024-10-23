@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
 from utils import count_params, count_trainable_params, calculate_stats
-from new_embedder import get_tgt_model
+from new_embedder import get_tgt_model, get_linear_tgt_model
 
 
 def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True):
@@ -55,7 +55,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    model, embedder_stats = get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
