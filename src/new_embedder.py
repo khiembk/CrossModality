@@ -97,7 +97,9 @@ class wrapper2D(torch.nn.Module):
                 return self.model(x).logits
             else:
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
+                print("embedding output shape : ",embedding_output.shape , "input dim: ", input_dimensions)
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
+                print("encodder output shape : ",encodder_output.shape )
                 output_affterEncodder =  encodder_output.last_hidden_state
                 return output_affterEncodder
 
