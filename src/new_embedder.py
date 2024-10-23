@@ -616,13 +616,13 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             
     src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False)
     src_model = src_model.to(args.device).eval()
-            
+    print("sample shape: ",sample_shape)        
     src_feats = []
     src_ys = []
     for i, data in enumerate(src_train_loader):
             x_, y_ = data 
             x_ = x_.to(args.device)
-
+            print("x_shape: ", x_.shape)
             out = src_model(x_)
             if (i==1):
                 print("shape of source: ", out.shape)
