@@ -688,7 +688,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             x, y = data 
         
             x, y = x.to(args.device), y.to(args.device)
-            batch_size = args.batch_size
+            batch_size = 1
             num_patches = x.size(0) 
             hidden_dim = x.size(1)  
             x = x.view(batch_size, num_patches, hidden_dim) 
