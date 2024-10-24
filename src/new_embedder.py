@@ -688,14 +688,14 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             x, y = data 
         
             x, y = x.to(args.device), y.to(args.device)
-            # batch_size = x.size(0)
-            # num_patches = x.size(1) 
-            # hidden_dim = x.size(2)  
-            # h = w = int(num_patches ** 0.5) 
+            batch_size = 4
+            num_patches = x.size(0) 
+            hidden_dim = x.size(1)  
+            h = w = int(num_patches ** 0.5) 
     
     
-            # x = x.permute(0, 2, 1).contiguous() 
-            # x = x.view(batch_size, hidden_dim, h, w)  
+            x = x.permute(0, 2, 1).contiguous() 
+            x = x.view(batch_size, hidden_dim, h, w)  
             
             if (i==0):
                 print("x_shape in lp: ",x.shape)
