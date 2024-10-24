@@ -163,8 +163,7 @@ class wrapper2DLORA(torch.nn.Module):
         
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            if warm_init :
-                 embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
             # compute grad embedder 
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
@@ -222,8 +221,7 @@ class wrapper1D(torch.nn.Module):
         print("nomal 1D lora ",count_params(self.model))
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            if warm_init :
-                embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
@@ -314,8 +312,7 @@ class wrapper1DLORA(torch.nn.Module):
 
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            if warm_init :
-                 embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
