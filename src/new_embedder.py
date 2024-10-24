@@ -697,7 +697,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             # x = x.permute(0, 2, 1).contiguous() 
             # x = x.view(batch_size, hidden_dim, h, w)  
             
-            if (i==1):
+            if (i==0):
                 print("x_shape in lp: ",x.shape)
 
             out = tgt_model(x)
