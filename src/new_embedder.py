@@ -85,8 +85,7 @@ class wrapper2D(torch.nn.Module):
 
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            if warm_init :
-                embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
@@ -619,7 +618,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.dataset, args.batch_size, False, maxsize=5000)
     
             
-    src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False)
+    src_model = wrapper2D(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, use_embedder= False)
     src_model = src_model.to(args.device).eval()
     print("sample shape: ",sample_shape)        
     src_feats = []
@@ -627,6 +626,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     for i, data in enumerate(src_train_loader):
             x_, y_ = data 
             x_ = x_.to(args.device)
+            x_ = transforms.Resize((224, 224))(x_)
             print("x_shape: ", x_.shape)
             out = src_model(x_)
             if (i==1):
