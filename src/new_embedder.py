@@ -677,7 +677,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     score = 0
     total_losses, times, embedder_stats = [], [], []
     # Train predictor 
-    for ep in range(10):   
+    for ep in range(20):   
         train_loss = 0
         tgt_model_optimizer.zero_grad()
 
