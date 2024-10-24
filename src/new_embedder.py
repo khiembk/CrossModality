@@ -186,7 +186,7 @@ class wrapper2DLORA(torch.nn.Module):
             if self.classification:    
                return self.predictor(x)
             else: 
-                decodder_outout = self.model.swin.decoder(x).last_hidden_state
+                decodder_outout = self.model.decoder(x).last_hidden_state
                 return self.predictor(decodder_outout)
 
         x = self.model(x).logits
@@ -627,7 +627,7 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             x_, y_ = data 
             x_ = x_.to(args.device)
             x_ = transforms.Resize((224, 224))(x_)
-            print("x_shape: ", x_.shape)
+            #print("x_shape: ", x_.shape)
             out = src_model(x_)
             if (i==1):
                 print("shape of source: ", out.shape)
