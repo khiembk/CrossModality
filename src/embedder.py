@@ -601,7 +601,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 
                 x = x.to(args.device)
                 out = tgt_model(x)
-                feats.append(out.detach())
+                feats.append(out)
                 datanum += x.shape[0]
                 
                 if datanum > args.maxsamples: break
