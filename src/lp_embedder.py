@@ -752,17 +752,9 @@ def get_Em_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_ran
     torch.cuda.empty_cache() 
 
 
-    if (lora_rank == -1):
-        from_scratch = False
-        if (mode == 'from_scratch'):
-            from_scratch = True
-        wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
-    else :
-        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
-        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init, train_embedder=False)   
         
-    
+    tgt_model = get_tgt_model(args,root,sample_shape,num_classes,loss,lora_rank)
+    print("get target model")
     tgt_model = tgt_model.to(args.device).train()
     tgt_model.output_raw = False
     tgt_model.train_predictor = True
