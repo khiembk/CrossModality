@@ -583,7 +583,7 @@ def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,
             feats = torch.cat(feats, 0)
             if feats.shape[0] > 1:
                 #print("tgt_feats_shape: ",feats.shape)
-                loss = tgt_class_weights[i] * score_func(feats)
+                loss = tgt_class_weights[i] * score_func(feats)/1024
                 loss.backward()
                 total_loss += loss.item()
 
