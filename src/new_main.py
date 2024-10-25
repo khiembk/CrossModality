@@ -55,7 +55,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
     #fix
-    model, embedder_stats = get_Em_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
