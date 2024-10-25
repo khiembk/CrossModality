@@ -569,12 +569,10 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     total_losses, times, embedder_stats = [], [], []
     # Train embeder 
     print("Train embedder with ep = ",args.embedder_epochs)
-    args.maxsamples = 64
     for ep in range(args.embedder_epochs):   
 
         total_loss = 0    
         time_start = default_timer()
-        args.maxsamples = 40
         for i in np.random.permutation(num_classes_new):
             feats = []
             datanum = 0
