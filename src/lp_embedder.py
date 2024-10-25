@@ -174,7 +174,7 @@ class wrapper2DLORA(torch.nn.Module):
         
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            #embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
             # compute grad embedder 
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
@@ -753,9 +753,9 @@ def get_Em_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_ran
 
 
         
-    tgt_model = get_tgt_model(args,root,sample_shape,num_classes,loss,lora_rank)
+    tgt_model,embedder_stats = get_tgt_model(args,root,sample_shape,num_classes,loss,lora_rank)
     print("get target model")
-    tgt_model = tgt_model.to(args.device).train()
+    #tgt_model = tgt_model.to(args.device).train()
     tgt_model.output_raw = False
     tgt_model.train_predictor = True
 
@@ -778,7 +778,7 @@ def get_Em_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_ran
     
 
     score = 0
-    total_losses, times, embedder_stats = [], [], []
+    total_losses, times,= [], []
     # Train predictor 
     predictor_ep = 20
     for ep in range(predictor_ep):   
