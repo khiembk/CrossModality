@@ -24,8 +24,8 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     x1_shape = next(iter(src_train_dataset))[0].shape
     x2_shape = next(iter(dataset))[0].shape
 
-    print(f"Source dataset shape: {x1_shape}")
-    print(f"Target dataset shape: {x2_shape}")
+    # print(f"Source dataset shape: {x1_shape}")
+    # print(f"Target dataset shape: {x2_shape}")
     dist = DatasetDistance(src_train_dataset, dataset,
                                     inner_ot_method = 'exact' if exact else 'gaussian_approx',
                                     debiased_loss = True, inner_ot_debiased=True,
@@ -582,7 +582,7 @@ def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,
             # print("shape of one ele in tgt feats: ", feats[0].shape)
             feats = torch.cat(feats, 0)
             if feats.shape[0] > 1:
-                print("tgt_feats_shape: ",feats.shape)
+                #print("tgt_feats_shape: ",feats.shape)
                 loss = tgt_class_weights[i] * score_func(feats)
                 loss.backward()
                 total_loss += loss.item()
