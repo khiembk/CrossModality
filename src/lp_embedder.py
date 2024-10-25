@@ -767,18 +767,7 @@ def get_Em_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_ran
     print("get_optimizer : ")
     print("all param count:", count_params(tgt_model))
     print("trainabel params count :  ",count_trainable_params(tgt_model))
-    if args.objective == 'otdd-exact':
-        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
-    elif args.objective == 'otdd-gaussian':
-        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=False)
-    elif args.objective == 'l2':
-        score_func = partial(l2, src_train_dataset=src_train_dataset)
-    else:
-        score_func = MMD_loss(src_data=src_feats, maxsamples=args.maxsamples)
     
-
-    score = 0
-    total_losses, times,= [], []
     # Train predictor 
     predictor_ep = 20
     for ep in range(predictor_ep):   
