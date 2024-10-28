@@ -174,9 +174,9 @@ class wrapper2DLORA(torch.nn.Module):
             if self.classification:
                 return self.model(x).logits
             else:
-                print("x_shape: ", x.shape)
+                
                 embedding_output, input_dimensions = self.model.swin.embeddings(x)
-                print(f"Embedding output shape: {embedding_output.shape}, Input dimensions: {input_dimensions}")
+               
                 encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
                 output_affterEncodder =  encodder_output.last_hidden_state
                 return output_affterEncodder
@@ -465,7 +465,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
+def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True, embedder_obj = 'otdd-exact'):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -536,6 +536,9 @@ def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,
     print("get_optimizer : ")
     print("all param count:", count_params(tgt_model))
     print("trainabel params count :  ",count_trainable_params(tgt_model))
+
+    if embedder_obj is not None :
+        args.objective = embedder_obj
     if args.objective == 'otdd-exact':
         score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
     elif args.objective == 'otdd-gaussian':
@@ -557,7 +560,7 @@ def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,
 
         total_loss = 0    
         time_start = default_timer()
-        args.maxsamples = 40
+        args.maxsamples = 36
         for i in np.random.permutation(num_classes_new):
             feats = []
             datanum = 0
@@ -583,7 +586,7 @@ def get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,
             feats = torch.cat(feats, 0)
             if feats.shape[0] > 1:
                 #print("tgt_feats_shape: ",feats.shape)
-                loss = tgt_class_weights[i] * score_func(feats)/1024
+                loss = tgt_class_weights[i] * score_func(feats)
                 loss.backward()
                 total_loss += loss.item()
 

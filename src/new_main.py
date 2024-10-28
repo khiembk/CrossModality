@@ -18,7 +18,7 @@ from utils import count_params, count_trainable_params, calculate_stats
 from new_embedder import get_new_tgt_model, get_linear_tgt_model
 from lp_embedder import get_Em_linear_tgt_model
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True):
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, embedder_obj = 'otdd-exact'):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
@@ -54,7 +54,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     if load_embedder(use_determined, args):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
-    model, embedder_stats = get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    model, embedder_stats = get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init, embedder_obj= embedder_obj)
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
@@ -428,6 +428,7 @@ if __name__ == '__main__':
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
+    parser.add_argument('--embedder_objective', type= str, default= 'otdd-exact', help='Objective function for embedder training')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
@@ -436,6 +437,7 @@ if __name__ == '__main__':
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     warm_init = args.warm_init
+    embedder_obj = args.embedder_objective
     print("current mode: ", mode)
     if args.config is not None:     
         import yaml
@@ -452,8 +454,10 @@ if __name__ == '__main__':
                 args.experiment_id = -2
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-                     
-            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init)
+
+            args.finetune_method = args.finetune_method + '_' + embedder_obj
+
+            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj=embedder_obj)
 
     else:
         import determined as det
@@ -472,5 +476,8 @@ if __name__ == '__main__':
             args.experiment_id = -2
         print("my lora rank: ", lora_rank)
         with det.core.init() as context:
-            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init)
+
+            args.finetune_method = args.finetune_method + '_' + embedder_obj
+
+            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj= embedder_obj)
 
