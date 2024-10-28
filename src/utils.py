@@ -686,12 +686,12 @@ def embedder_init(source, target, train_embedder=False, match_stats=False):
                 
                 bias_mean, bias_std = source.patch_embeddings.projection.bias.mean(), source.patch_embeddings.projection.bias.std()
                 nn.init.normal_(target.projection.bias, bias_mean, bias_std)
-            else:
-                rep_num = target.projection.in_channels // source.patch_embeddings.projection.in_channels + 1
-                rep_weight = torch.cat([source.patch_embeddings.projection.weight.data] * rep_num, 1)
+            # else:
+            #     rep_num = target.projection.in_channels // source.patch_embeddings.projection.in_channels + 1
+            #     rep_weight = torch.cat([source.patch_embeddings.projection.weight.data] * rep_num, 1)
                 
-                target.projection.weight.data.copy_(rep_weight[:, :target.projection.in_channels, :target.projection.kernel_size[0], :target.projection.kernel_size[1]])        
-                target.projection.bias.data.copy_(source.patch_embeddings.projection.bias.data)
+            #     target.projection.weight.data.copy_(rep_weight[:, :target.projection.in_channels, :target.projection.kernel_size[0], :target.projection.kernel_size[1]])        
+            #     target.projection.bias.data.copy_(source.patch_embeddings.projection.bias.data)
 
             target.norm.weight.data.copy_(source.norm.weight.data)
             target.norm.bias.data.copy_(source.norm.bias.data)

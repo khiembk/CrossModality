@@ -15,10 +15,10 @@ from types import SimpleNamespace
 
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
 from utils import count_params, count_trainable_params, calculate_stats
-from new_embedder import get_new_tgt_model, get_linear_tgt_model
-from lp_embedder import get_Em_linear_tgt_model
+from new_embedder import get_new_tgt_model
+from lp_embedder import get_Em_linear_tgt_model,get_linear_tgt_model
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, embedder_obj = 'otdd-exact'):
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, embedder_obj = 'otdd-exact', lp = False):
 
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
@@ -54,7 +54,11 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     if load_embedder(use_determined, args):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
-    model, embedder_stats = get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init, embedder_obj= embedder_obj)
+    if lp :
+
+        model, embedder_stats = get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    else: 
+        model, embedder_stats = get_new_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init, embedder_obj= embedder_obj)
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
@@ -429,11 +433,13 @@ if __name__ == '__main__':
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
     parser.add_argument('--embedder_objective', type= str, default= 'otdd-exact', help='Objective function for embedder training')
+    parser.add_argument('--lp', type= bool, default= False, help='Linear probing or not')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
     save_per_ep = args.save_per_ep
     mode = args.mode 
+    lp = args.lp
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     warm_init = args.warm_init
@@ -456,8 +462,9 @@ if __name__ == '__main__':
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
 
             args.finetune_method = args.finetune_method + '_' + embedder_obj
-
-            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj=embedder_obj)
+            if lp:
+                args.finetune_method = args.finetune_method + '_lp' 
+            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj=embedder_obj, lp = lp)
 
     else:
         import determined as det
@@ -478,6 +485,7 @@ if __name__ == '__main__':
         with det.core.init() as context:
 
             args.finetune_method = args.finetune_method + '_' + embedder_obj
-
-            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj= embedder_obj)
+            if lp:
+                args.finetune_method = args.finetune_method + '_lp' 
+            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj= embedder_obj, lp = lp)
 
