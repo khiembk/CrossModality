@@ -35,7 +35,106 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     d = dist.distance(maxsamples = len(src_train_dataset))
     return d
 
+class wrapper2DLORA_last(torch.nn.Module): 
+    def __init__(self, input_shape, output_shape, lora_rank=1, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, rankLoRA=1, warm_init=True, classification=None, train_embedder=False):
+        super().__init__()
+        self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
+        self.output_raw = True
+        self.train_predictor = False
+        self.train_embedder = train_embedder
+        if classification is not None:
+            self.classification = classification
+        
+        # LoRA configuration
+        lora_config = LoraConfig(
+            r=lora_rank,  # Rank of the LoRA matrices
+            lora_alpha=32,  # Scaling factor
+            target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
+            lora_dropout=0,  # Dropout for LoRA layers
+        )
 
+        # Model configuration
+        if weight == 'tiny':
+            arch_name = "microsoft/swin-tiny-patch4-window7-224"
+            embed_dim = 96
+            output_dim = 768
+            img_size = 224
+        elif weight == 'base':
+            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+            embed_dim = 128
+            output_dim = 1024
+            img_size = 224
+            patch_size = 4
+
+        modelclass = SwinForImageClassification if self.classification else SwinForMaskedImageModeling
+        self.model = modelclass.from_pretrained(arch_name)
+        self.model.config.image_size = img_size
+        if drop_out is not None:
+            self.model.config.hidden_dropout_prob = drop_out
+            self.model.config.attention_probs_dropout_prob = drop_out
+        self.model = modelclass.from_pretrained(arch_name, config=self.model.config) if not from_scratch else modelclass(self.model.config)
+
+        # Setup classifier or predictor
+        if self.classification:
+            self.model.pooler = nn.AdaptiveAvgPool1d(1)
+            self.model.classifier = nn.Identity()
+            self.predictor = nn.Linear(in_features=output_dim, out_features=output_shape)
+        else:
+            self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
+            self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
+            self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
+
+        # Inject LoRA only into the last transformer block
+        self.model = self.apply_lora_to_last_block(self.model, lora_config)
+
+        # Embedding layer setup
+        if use_embedder:
+            self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
+            set_grad_state(self.embedder, True)
+            self.model.swin.embeddings = self.embedder  
+
+    def apply_lora_to_last_block(self, model, lora_config):
+        """
+        Apply LoRA to only the last block of the Swin Transformer.
+        """
+        transformer_blocks = model.swin.encoder.layers
+        last_block = transformer_blocks[-1]  # Get the last block
+        
+        # Apply LoRA only to the last block
+        last_block = get_peft_model(last_block, lora_config)
+        for block in transformer_blocks[:-1]:
+            for param in block.parameters():
+                param.requires_grad = False
+        return model
+    
+    def forward(self, x):
+        
+        if self.output_raw:
+            if self.classification:
+                if self.train_embedder:
+                   return self.model.swin.embeddings(x)[0]
+                else :   
+                   return self.model(x).logits
+                
+            else:
+                if self.train_embedder:
+                    return self.model.swin.embeddings(x)[0]
+                else:
+                    embedding_output, input_dimensions = self.model.swin.embeddings(x)
+                    encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
+                    output_affterEncodder =  encodder_output.last_hidden_state
+                    return output_affterEncodder
+        
+        if self.train_predictor:
+            if self.classification:    
+               return self.predictor(x)
+            else: 
+                decodder_outout = self.model.decoder(x)
+                return self.predictor(decodder_outout)
+
+        x = self.model(x).logits
+        return self.predictor(x)
+     
 class wrapper2D(torch.nn.Module):
     def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True, classification = None, train_embedder = False):
         super().__init__()
@@ -537,8 +636,10 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
         tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init, train_embedder= True)
     else :
-        
-        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+        if (mode == 'last'):
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA_last
+        else:    
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
         tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init, train_embedder= True)   
         
     
@@ -616,8 +717,9 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
 
     del tgt_train_loader, tgt_train_loaders
     torch.cuda.empty_cache()
-
+    tgt_model.train_predictor = False
     tgt_model.train_embedder = False
+    tgt_model.output_raw = False
     return tgt_model, embedder_stats
 
 def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
