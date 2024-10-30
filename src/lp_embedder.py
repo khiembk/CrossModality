@@ -93,18 +93,16 @@ class wrapper2DLORA_last(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
-    def apply_lora_to_last_block(self, model, lora_config):
+    def apply_lora_to_last_block(self, model, lora_config, frozen_not_lora = False):
         """
         Apply LoRA to only the last block of the Swin Transformer.
         """
         transformer_blocks = model.swin.encoder.layers
-        last_block = transformer_blocks[-1]  # Get the last block
-        
-        # Apply LoRA only to the last block
-        last_block = get_peft_model(last_block, lora_config)
+        #last_block = transformer_blocks[-1]  # Get the last block
+        #last_block = get_peft_model(last_block, lora_config)
         for block in transformer_blocks[:-1]:
-            for param in block.parameters():
-                param.requires_grad = False
+            block = get_peft_model(block, lora_config)
+
         return model
     
     def forward(self, x):
@@ -586,7 +584,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     if len(sample_shape) == 4:
         IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
             
-        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False, train_embedder= True)
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False, train_embedder= False)
         src_model = src_model.to(args.device).eval()
             
         src_feats = []
@@ -634,13 +632,13 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         if (mode == 'from_scratch'):
             from_scratch = True
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init, train_embedder= True)
+        tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
     else :
         if (mode == 'last'):
             wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA_last
         else:    
             wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
-        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init, train_embedder= True)   
+        tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init)   
         
     
     tgt_model = tgt_model.to(args.device).train()
