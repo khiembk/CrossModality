@@ -119,7 +119,7 @@ class wrapper2DLORA(torch.nn.Module):
         lora_config = LoraConfig(
            r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key", "projection","dense" ],  # Apply LoRA on specific modules
+           target_modules=["query", "value", "key", "projection","dense","reduction" ],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers
          )
         if weight == 'tiny':
@@ -289,7 +289,7 @@ class wrapper1DLORA(torch.nn.Module):
         lora_config = LoraConfig(
            r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
+           target_modules=["query", "value", "key", "projection", "dense", "reduction"],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers  # Apply LoRA on specific modules
            
          )

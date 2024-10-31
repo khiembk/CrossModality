@@ -438,6 +438,7 @@ if __name__ == '__main__':
     parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
     parser.add_argument('--embedder_objective', type= str, default= 'otdd-exact', help='Objective function for embedder training')
     parser.add_argument('--lp', type= bool, default= False, help='Linear probing or not')
+    parser.add_argument('--note', type= str, default= None, help='add_note')
     args = parser.parse_args()
     lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
@@ -448,6 +449,7 @@ if __name__ == '__main__':
     log_folder = args.log_folder
     warm_init = args.warm_init
     embedder_obj = args.embedder_objective
+    note = args.note
     print("current mode: ", mode)
     if args.config is not None:     
         import yaml
@@ -464,8 +466,9 @@ if __name__ == '__main__':
                 args.experiment_id = -2
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-
-            args.finetune_method = args.finetune_method + '_' + embedder_obj
+            if note is not None :
+                args.finetune_method = args.finetune_method + "_" + note
+            args.finetune_method = args.finetune_method + '_' + embedder_obj + '_' + mode
             if lp:
                 args.finetune_method = args.finetune_method + '_lp' 
             main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj=embedder_obj, lp = lp)
@@ -490,6 +493,6 @@ if __name__ == '__main__':
 
             args.finetune_method = args.finetune_method + '_' + embedder_obj
             if lp:
-                args.finetune_method = args.finetune_method + '_lp' 
+                args.finetune_method = args.finetune_method + '_lp' + '_' + mode
             main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init, embedder_obj= embedder_obj, lp = lp)
 

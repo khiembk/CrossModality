@@ -49,7 +49,7 @@ class wrapper2DLORA_last(torch.nn.Module):
         lora_config = LoraConfig(
             r=lora_rank,  # Rank of the LoRA matrices
             lora_alpha=32,  # Scaling factor
-            target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
+            target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
             lora_dropout=0,  # Dropout for LoRA layers
         )
 
@@ -100,8 +100,11 @@ class wrapper2DLORA_last(torch.nn.Module):
         transformer_blocks = model.swin.encoder.layers
         #last_block = transformer_blocks[-1]  # Get the last block
         #last_block = get_peft_model(last_block, lora_config)
-        for block in transformer_blocks[:-1]:
+        for block in transformer_blocks[:2]:
             block = get_peft_model(block, lora_config)
+        
+        for sub_block in transformer_blocks[2].blocks[:10]:
+            sub_block = get_peft_model(sub_block, lora_config)
 
         return model
     
@@ -227,7 +230,7 @@ class wrapper2DLORA(torch.nn.Module):
         lora_config = LoraConfig(
            r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key", "projection","dense" ],  # Apply LoRA on specific modules
+           target_modules=["query", "value", "key", "projection","dense","reduction",  ],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers
          )
         if weight == 'tiny':
@@ -402,7 +405,7 @@ class wrapper1DLORA(torch.nn.Module):
         lora_config = LoraConfig(
            r= lora_rank,  # Rank of the LoRA matrices
            lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key", "projection", "dense"],  # Apply LoRA on specific modules
+           target_modules=["query", "value", "key", "projection", "dense", "reduction" ],  # Apply LoRA on specific modules
            lora_dropout= 0,  # Dropout for LoRA layers  # Apply LoRA on specific modules
            
          )
@@ -758,7 +761,10 @@ def get_linear_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
         tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
     else :
-        wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
+        if (mode == 'last'):
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA_last
+        else:    
+            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
         tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init, train_embedder=False)   
         
     
