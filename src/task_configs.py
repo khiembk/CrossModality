@@ -364,3 +364,8 @@ def set_decoder_trainable(model):
         print(f"Setting trainable: {name}")
         param.requires_grad = True
     
+    for name, param in model.named_parameters():
+        # Make specific layers trainable
+        if any(key in name for key in ["layernorm_before", "relative_position_bias_table", "layernorm_after", "norm"]):
+            print(f"Setting trainable: {name}")
+            param.requires_grad = True
