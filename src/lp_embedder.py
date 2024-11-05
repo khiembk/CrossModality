@@ -132,7 +132,18 @@ class wrapper2DLORA_last(torch.nn.Module):
                                 param.requires_grad = True
 
         return model 
-    
+
+    def apply_lora_selective_1(self, model, lora_config, p=0.2):
+        
+        transformer_blocks = model.swin.encoder.layers
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+            # Ensure `p` is a float, so it can be compared to the random value
+               if random.random() > p:
+                  block = get_peft_model(block, lora_config)
+
+        return model          
+
     def forward(self, x):
         
         if self.output_raw:
