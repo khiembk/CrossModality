@@ -360,9 +360,10 @@ def set_trainable(model,embedder = True, predictor = True, decoder = True):
 
 def set_decoder_trainable(model):
     # Make the decoder trainable
-    for name, param in model.base_model.model.decoder.named_parameters():
-        print(f"Setting trainable: {name}")
-        param.requires_grad = True
+    for name, param in  model.named_parameters():
+        if any(key in name for key in ["decoder"]):
+            print(f"Setting trainable: {name}")
+            param.requires_grad = True
     
     for name, param in model.named_parameters():
         # Make specific layers trainable

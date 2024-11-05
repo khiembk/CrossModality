@@ -158,8 +158,8 @@ class wrapper2DLORA(torch.nn.Module):
         
         #LoRA 
         self.model  = get_peft_model(self.model, lora_config)
-        if not self.classification : 
-            set_decoder_trainable(self.model)
+        
+        set_decoder_trainable(self.model)
         
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)

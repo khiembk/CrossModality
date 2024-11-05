@@ -402,10 +402,10 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
         scheduler.load_state_dict(model_state_dict['scheduler_state_dict'])
 
         rng_state_dict = torch.load(os.path.join(path, 'rng_state.ckpt'), map_location='cpu')
-        torch.set_rng_state(rng_state_dict['cpu_rng_state'])
-        torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
-        np.random.set_state(rng_state_dict['numpy_rng_state'])
-        random.setstate(rng_state_dict['py_rng_state'])
+        # torch.set_rng_state(rng_state_dict['cpu_rng_state'])
+        # torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
+        # np.random.set_state(rng_state_dict['numpy_rng_state'])
+        # random.setstate(rng_state_dict['py_rng_state'])
 
         if use_determined: 
             try:

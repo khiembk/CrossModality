@@ -17,7 +17,7 @@ def test1D_model():
 def test2D_model():
     sample_shape = (3,224,224)
     output_shape = 3
-    model = wrapper2DLORA(sample_shape,output_shape,4,classification= False)
+    model = wrapper2DLORA(sample_shape,output_shape, classification= False)
     print("trainable params: ", count_trainable_params(model))
     print("all params: ", count_params(model))
     for name, param in model.named_parameters():
