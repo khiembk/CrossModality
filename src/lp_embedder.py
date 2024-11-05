@@ -99,12 +99,38 @@ class wrapper2DLORA_last(torch.nn.Module):
         for layer in transformer_blocks:
             for block in layer.blocks:
             # Ensure `p` is a float, so it can be compared to the random value
-               if random.random() > p:
-                  block = get_peft_model(block, lora_config)
-               else: 
-                  print("Selective: set trainable: ")
-                  for param in block.parameters():
-                      param.requires_grad = True
+            #    if random.random() > p:
+            #       block = get_peft_model(block, lora_config)
+            #    else: 
+            #       print("Selective: set trainable: ",block)
+            #       for param in block.parameters():
+            #           param.requires_grad = True
+                # attention_layer = getattr(block.attention, 'self', None)
+            
+                # if attention_layer is not None:
+                
+                #         if random.random() > p:
+                #             # Apply LoRA to the specific sub-layer
+                #             attention_layer = get_peft_model(attention_layer, lora_config)
+                #             print(f"LoRA applied to {attention_layer} in block {block}")
+                #         else:
+                #             # Set parameters of the sub-layer as trainable
+                #             print(f"Selective: set trainable for {attention_layer} in block {block}")
+                #             for param in attention_layer.parameters():
+                #                 param.requires_grad = True
+                
+                for sub_layer_name, sub_layer in block.named_children():
+                    if sub_layer_name in ["attention","output", "intermediate"] : 
+                        if random.random() > p:
+                            # Apply LoRA to the specific sub-layer
+                            sub_layer = get_peft_model(sub_layer, lora_config)
+                            print(f"LoRA applied to {sub_layer_name} in block ")
+                        else:
+                            # Set parameters of the sub-layer as trainable
+                            print(f"Selective: set trainable for {sub_layer_name} in block ")
+                            for param in sub_layer.parameters():
+                                param.requires_grad = True
+
         return model 
     
     def forward(self, x):

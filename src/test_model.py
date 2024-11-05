@@ -23,6 +23,7 @@ def test2D_model():
     for name, param in model.named_parameters():
        if  param.requires_grad:
            print(f"Layer: {name}")
+
 def main():
     test2D_model()
 
