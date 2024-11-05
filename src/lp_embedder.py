@@ -12,7 +12,7 @@ from task_configs import get_data, get_optimizer_scheduler, set_decoder_trainabl
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 from peft import LoraConfig, get_peft_model
 from task_configs import get_config
-
+import random
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     ys = torch.zeros(len(feats)) if ys is None else ys
 
@@ -85,7 +85,8 @@ class wrapper2DLORA_last(torch.nn.Module):
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
         # Inject LoRA only into the last transformer block
-        self.model = self.apply_lora_to_last_block(self.model, lora_config)
+        self.model = self.apply_lora_to_blocks_randomly(self.model, lora_config= lora_config)
+        set_decoder_trainable(self.model)
 
         # Embedding layer setup
         if use_embedder:
@@ -93,20 +94,15 @@ class wrapper2DLORA_last(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
-    def apply_lora_to_last_block(self, model, lora_config, frozen_not_lora = False):
-        """
-        Apply LoRA to only the last block of the Swin Transformer.
-        """
+    def apply_lora_to_blocks_randomly(self,model, lora_config, p=0.2):
         transformer_blocks = model.swin.encoder.layers
-        #last_block = transformer_blocks[-1]  # Get the last block
-        #last_block = get_peft_model(last_block, lora_config)
-        for block in transformer_blocks[:2]:
-            block = get_peft_model(block, lora_config)
-        
-        for sub_block in transformer_blocks[2].blocks[:10]:
-            sub_block = get_peft_model(sub_block, lora_config)
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+            # Ensure `p` is a float, so it can be compared to the random value
+               if random.random() > p:
+                  block = get_peft_model(block, lora_config)
 
-        return model
+        return model 
     
     def forward(self, x):
         
