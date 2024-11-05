@@ -101,7 +101,10 @@ class wrapper2DLORA_last(torch.nn.Module):
             # Ensure `p` is a float, so it can be compared to the random value
                if random.random() > p:
                   block = get_peft_model(block, lora_config)
-
+               else: 
+                  print("Selective: set trainable: ")
+                  for param in block.parameters():
+                      param.requires_grad = True
         return model 
     
     def forward(self, x):
