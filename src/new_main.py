@@ -18,8 +18,20 @@ from utils import count_params, count_trainable_params, calculate_stats
 from new_embedder import get_new_tgt_model
 from lp_embedder import get_Em_linear_tgt_model,get_linear_tgt_model,get_tgt_model
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, embedder_obj = 'otdd-exact', lp = False):
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
 
+def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, embedder_obj = 'otdd-exact', lp = False):
+    set_seed()
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
     print("The current device is: ", args.device)

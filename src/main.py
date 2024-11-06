@@ -17,9 +17,20 @@ from task_configs import get_data, get_config, get_metric, get_optimizer_schedul
 from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
 
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
 
 def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True):
-
+    set_seed()
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
     print("The current device is: ", args.device)
