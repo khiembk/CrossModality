@@ -85,7 +85,7 @@ class wrapper2DLORA_last(torch.nn.Module):
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
         # Inject LoRA only into the last transformer block
-        self.model = self.apply_lora_to_blocks_randomly(self.model, lora_config= lora_config)
+        self.model = self.apply_lora_Increase(self.model)
         set_decoder_trainable(self.model)
 
         # Embedding layer setup
@@ -142,7 +142,59 @@ class wrapper2DLORA_last(torch.nn.Module):
                if random.random() > p:
                   block = get_peft_model(block, lora_config)
 
-        return model          
+        return model        
+
+    def apply_lora_Increase(self, model, start_mean= 4, end_mean = 64, std_dev= 1):
+        
+        transformer_blocks = model.swin.encoder.layers
+        sum_blocks = 0
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+                sum_blocks = sum_blocks + 1
+        current_block = 0        
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+            # Ensure `p` is a float, so it can be compared to the random value
+               current_block = current_block + 1
+               current_mean = start_mean + (current_block/sum_blocks)*(end_mean-start_mean)
+               current_rank =  np.random.normal(current_mean, std_dev)
+               current_rank = int(current_rank)
+               cur_lora_config = LoraConfig(
+                   r= current_rank,  # Rank of the LoRA matrices
+                   lora_alpha=32,  # Scaling factor
+                   target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                   lora_dropout=0
+               )
+               
+               block = get_peft_model(block, cur_lora_config)
+
+        return model  
+        
+    def apply_lora_Decrease(self, model, start_mean= 4, end_mean = 64, std_dev= 1):
+        
+        transformer_blocks = model.swin.encoder.layers
+        sum_blocks = 0
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+                sum_blocks = sum_blocks + 1
+        current_block = 0        
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+            # Ensure `p` is a float, so it can be compared to the random value
+               current_block = current_block + 1
+               current_mean = end_mean - (current_block/sum_blocks)*(end_mean-start_mean)
+               current_rank =  np.random.normal(current_mean, std_dev)
+               current_rank = int(current_rank)
+               cur_lora_config = LoraConfig(
+                   r= current_rank,  # Rank of the LoRA matrices
+                   lora_alpha=32,  # Scaling factor
+                   target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                   lora_dropout=0
+               )
+               
+               block = get_peft_model(block, cur_lora_config)
+
+        return model      
 
     def forward(self, x):
         
