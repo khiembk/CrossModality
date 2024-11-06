@@ -21,7 +21,8 @@ def test1D_model():
 def test2D_model():
     sample_shape = (3,224,224)
     output_shape = 3
-    model = wrapper2DLORA_last(sample_shape,output_shape, lora_rank=4 ,classification= False)
+    model = wrapper2DLORA_last(sample_shape,output_shape)
+    #print(model)
     print("trainable params: ", count_trainable_params(model))
     print("all params: ", count_params(model))
     for name, param in model.named_parameters():
@@ -42,9 +43,9 @@ def set_seed(seed: int = 42) -> None:
 
 def main():
     set_seed()
-    random_num = random.randint(1, 100)
-    print("random number: ", random_num)
-    #test2D_model()
+    # random_num = random.randint(1, 100)
+    # print("random number: ", random_num)
+    test2D_model()
 
 if __name__ == "__main__":
     main()
