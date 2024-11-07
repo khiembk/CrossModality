@@ -85,7 +85,7 @@ class wrapper2DLORA_last(torch.nn.Module):
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
         # Inject LoRA only into the last transformer block
-        self.model = self.apply_lora_rank_Increase_depend(self.model)
+        self.model = self.apply_lora_rank_Increase_depend(self.model, p=4)
         set_decoder_trainable(self.model)
 
         # Embedding layer setup
@@ -169,7 +169,7 @@ class wrapper2DLORA_last(torch.nn.Module):
                block = get_peft_model(block, cur_lora_config)
 
         return model  
-    def apply_lora_rank_Increase_depend(self, model):
+    def apply_lora_rank_Increase_depend(self, model , p=1):
         
         transformer_blocks = model.swin.encoder.layers
         for layer in transformer_blocks:
@@ -181,6 +181,7 @@ class wrapper2DLORA_last(torch.nn.Module):
                             print("Attention shape: ",  sub_layer.self.query.weight.shape)
                             cur_shape = sub_layer.self.query.weight.shape
                             current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
                             cur_lora_config = LoraConfig(
                                   r= current_rank,  # Rank of the LoRA matrices
                                   lora_alpha=32,  # Scaling factor
@@ -192,6 +193,7 @@ class wrapper2DLORA_last(torch.nn.Module):
                             print("Intermediate shape: ", sub_layer.dense.weight.shape)
                             cur_shape = sub_layer.dense.weight.shape
                             current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
                             cur_lora_config = LoraConfig(
                                   r= current_rank,  # Rank of the LoRA matrices
                                   lora_alpha=32,  # Scaling factor
@@ -203,6 +205,7 @@ class wrapper2DLORA_last(torch.nn.Module):
                             print("Output shape: ",sub_layer.dense.weight.shape)   
                             cur_shape =  sub_layer.dense.weight.shape
                             current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
                             cur_lora_config = LoraConfig(
                                   r= current_rank,  # Rank of the LoRA matrices
                                   lora_alpha=32,  # Scaling factor
@@ -215,6 +218,7 @@ class wrapper2DLORA_last(torch.nn.Module):
                 print("downsample shape: ", downsample.reduction.weight.shape)
                 cur_shape =  downsample.reduction.weight.shape
                 current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                current_rank = int(current_rank / (2**p))
                 cur_lora_config = LoraConfig(
                                   r= current_rank,  # Rank of the LoRA matrices
                                   lora_alpha=32,  # Scaling factor
