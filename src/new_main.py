@@ -441,7 +441,7 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
+    parser.add_argument('--lora_rank', type= int, default= 1, help='LORA rank')
     parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')

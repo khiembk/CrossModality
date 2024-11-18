@@ -34,6 +34,138 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
                 
     d = dist.distance(maxsamples = len(src_train_dataset))
     return d
+class wrapper1D_last(torch.nn.Module):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True, lora_rank=1):
+        super().__init__()
+
+        self.dense = False
+        self.output_raw = True
+        self.weight = weight
+        self.output_shape = output_shape
+        
+        if isinstance(output_shape, tuple):
+            self.dense = True
+        if (from_scratch):
+            print("randominit model")
+        if weight =='swin':
+            self.model = SwinForImageClassification.from_pretrained("microsoft/swin-base-patch4-window7-224-in22k") if not from_scratch else SwinForImageClassification()
+            self.model.pooler = nn.AdaptiveAvgPool1d(1)
+            self.model.classifier = nn.Identity() 
+
+        else:
+            modelname = 'roberta-base' if weight[:7] == 'roberta' else 'bert-base-uncased'
+            configuration = AutoConfig.from_pretrained(modelname)
+            if drop_out is not None:
+                configuration.hidden_dropout_prob = drop_out
+                configuration.attention_probs_dropout_prob = drop_out
+            self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
+            
+        self.model = self.apply_lora_rank_Increase_depend(self.model, p=1)
+        set_decoder_trainable(self.model)
+        if use_embedder:
+            self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
+            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            set_grad_state(self.embedder, True)    
+        else:
+            self.embedder = nn.Identity()
+
+        if not weight == 'swin': 
+            self.model.embeddings = embedder_placeholder()
+            if self.dense:
+                self.model.pooler = nn.Identity()
+                self.predictor = adaptive_pooler(out_channel = output_shape[-2] * self.embedder.stack_num, output_shape=output_shape, dense=True)
+            else:
+                self.model.pooler = adaptive_pooler()
+                self.predictor = nn.Linear(in_features=768, out_features=output_shape)   
+        else:
+            self.model.swin.embeddings = self.embedder  
+            if self.dense:
+                self.predictor = adaptive_pooler(out_channel = output_shape[-2] * self.embedder.stack_num)
+            else:
+                self.predictor = nn.Linear(in_features=1024, out_features=output_shape)  
+
+        if activation == 'sigmoid':
+            self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())  
+
+        print("final 1D nomal",count_params(self.model))    
+            
+        # self.model is body model     
+        #set_grad_state(self.model, False)
+        #set_grad_state(self.predictor, False)
+
+    def apply_lora_rank_Increase_depend(self, model , p=1):
+        
+        transformer_blocks = model.encoder.layer
+        for layer in transformer_blocks:
+            for sub_layer_name, sub_layer in layer.named_children():
+                
+                    
+                    if sub_layer_name in ["attention","output", "intermediate"] : 
+                        if sub_layer_name == "attention":
+                            print("Attention shape: ",  sub_layer.self.query.weight.shape)
+                            cur_shape = sub_layer.self.query.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+                        if sub_layer_name == "intermediate":
+                            print("Intermediate shape: ", sub_layer.dense.weight.shape)
+                            cur_shape = sub_layer.dense.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+                        if sub_layer_name == "output":
+                            print("Output shape: ",sub_layer.dense.weight.shape)   
+                            cur_shape =  sub_layer.dense.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank / (2**p))
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+            
+        return model
+    
+    def forward(self, x):
+        if self.weight == 'swin':
+            if self.output_raw:
+                return  self.model(x).logits
+            # nomal foward 
+            x = self.model(x).logits
+            return self.predictor(x)
+        
+
+        x = self.embedder(x)
+        # foward with dense and not dense
+        if self.dense:
+            x = self.model(inputs_embeds=x)['last_hidden_state']
+            if self.output_raw :
+                return x
+            x = self.predictor(x)
+        else:
+            x = self.model(inputs_embeds=x)['pooler_output']
+            if self.output_raw :
+                return x
+            x = self.predictor(x)
+
+        if x.shape[1] == 1 and len(x.shape) == 2:
+            x = x.squeeze(1)
+
+        return x
 
 class wrapper2DLORA_last(torch.nn.Module): 
     def __init__(self, input_shape, output_shape, lora_rank=1, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, rankLoRA=1, warm_init=True, classification=None, train_embedder=False):
@@ -85,7 +217,7 @@ class wrapper2DLORA_last(torch.nn.Module):
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
         # Inject LoRA only into the last transformer block
-        self.model = self.apply_lora_rank_Increase_depend2(self.model)
+        self.model = self.apply_lora_rank_Increase_depend(self.model, p=6)
         set_decoder_trainable(self.model)
 
         # Embedding layer setup
@@ -296,7 +428,66 @@ class wrapper2DLORA_last(torch.nn.Module):
                
                 downsample = get_peft_model(downsample, cur_lora_config)
         return model
+    
+    def apply_lora_rank_random(self, model , p=1):
+        
+        transformer_blocks = model.swin.encoder.layers
 
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+                for sub_layer_name, sub_layer in block.named_children():
+                    
+                    if sub_layer_name in ["attention","output", "intermediate"] : 
+                        if sub_layer_name == "attention":
+                            print("Attention shape: ",  sub_layer.self.query.weight.shape)
+                            cur_shape = sub_layer.self.query.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank * random.random() + 1) 
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+                        if sub_layer_name == "intermediate":
+                            print("Intermediate shape: ", sub_layer.dense.weight.shape)
+                            cur_shape = sub_layer.dense.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank * random.random() + 1)
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+                        if sub_layer_name == "output":
+                            print("Output shape: ",sub_layer.dense.weight.shape)   
+                            cur_shape =  sub_layer.dense.weight.shape
+                            current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                            current_rank = int(current_rank * random.random() + 1)
+                            cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                            sub_layer = get_peft_model(sub_layer, cur_lora_config)
+            downsample = layer.downsample
+            if (downsample is not None):
+                print("downsample shape: ", downsample.reduction.weight.shape)
+                cur_shape =  downsample.reduction.weight.shape
+                current_rank = int((cur_shape[0]*cur_shape[1])/(cur_shape[0] + cur_shape[1]))
+                current_rank = int(current_rank * random.random() + 1)
+                cur_lora_config = LoraConfig(
+                                  r= current_rank,  # Rank of the LoRA matrices
+                                  lora_alpha=32,  # Scaling factor
+                                  target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on specific modules
+                                  lora_dropout=0)
+               
+                downsample = get_peft_model(downsample, cur_lora_config)
+        return model
     def apply_lora_Decrease(self, model, start_mean= 4, end_mean = 64, std_dev= 1):
         
         transformer_blocks = model.swin.encoder.layers
@@ -852,7 +1043,8 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
         tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, from_scratch= from_scratch, warm_init = warm_init)
     else :
         if (mode == 'last'):
-            wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA_last
+            print("call last")
+            wrapper_funcLORA = wrapper1D_last if len(sample_shape) == 3 else wrapper2DLORA_last
         else:    
             wrapper_funcLORA = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
         tgt_model = wrapper_funcLORA(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, warm_init= warm_init)   
