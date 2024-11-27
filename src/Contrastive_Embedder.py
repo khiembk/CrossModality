@@ -31,9 +31,13 @@ def align_loss(batch_features, labels, alpha=2):
     Returns:
         torch.Tensor: Alignment loss.
     """
-    batch_size = batch_features.size(0)
+    
+    print(f"batch_features shape: {batch_features.shape}")
+    print(f"labels shape: {labels.shape}")
+    labels = labels.squeeze() 
     pairwise_distances = torch.cdist(batch_features, batch_features, p=2)  # Shape: (batch_size, batch_size)
     positive_mask = labels.unsqueeze(0) == labels.unsqueeze(1)  # Shape: (batch_size, batch_size)
+    #print("positive mask :",positive_mask)
     positive_mask.fill_diagonal_(False)  # Ignore self-comparisons
 
     # Compute distances for positive pairs only
@@ -90,11 +94,7 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
         ys = torch.from_numpy(ys).long().to('cpu')
 
     dataset = torch.utils.data.TensorDataset(feats, ys)
-    x1_shape = next(iter(src_train_dataset))[0].shape
-    x2_shape = next(iter(dataset))[0].shape
-
-    print(f"Source dataset shape: {x1_shape}")
-    print(f"Target dataset shape: {x2_shape}")
+    
     dist = DatasetDistance(src_train_dataset, dataset,
                                     inner_ot_method = 'exact' if exact else 'gaussian_approx',
                                     debiased_loss = True, inner_ot_debiased=True,
@@ -149,7 +149,7 @@ class wrapper2D(torch.nn.Module):
             self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
-        # set_grad_state(self.model, False)
+        set_grad_state(self.model, False)
         # set_grad_state(self.predictor, False) 
 
         if use_embedder:
@@ -387,10 +387,12 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 out = out.mean(1)
             if (i==1):
                 print("shape of source: ", out.shape)
-            src_ys.append(y_.detach().cpu())
+            #src_ys.append(y_.detach().cpu())
+            src_ys.append(torch.zeros_like(y_.detach().cpu()))
             src_feats.append(out.detach().cpu())
         src_feats = torch.cat(src_feats, 0)
         src_ys = torch.cat(src_ys, 0).long()
+        
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
         del src_model, src_train_loader    
 
@@ -443,7 +445,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
     num_samples = args.maxsamples
     print("num_sample: ", num_samples)
     tgt_model.train_embedder = True
-    for ep in range(2):   
+    for ep in range(100):   
         random_batches = random.sample(tgt_train_loader_list, num_samples)
         total_loss = 0    
         time_start = default_timer()
@@ -460,53 +462,46 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 out = out.mean(1)
           
             features.append(out)
-            if len(features) > 64 :
+            if len(features) == args.maxsamples :
                print("shape of features: ", len(features))
                features = torch.cat(features, 0)
-               loss = (65/len(random_batches)) * score_func(features)
-               loss.backward()
-               print("loss func: ", loss.item())
+               embedder_loss = (len(features)/len(random_batches)) * score_func(features)
+               embedder_loss.backward()
+               print("loss func: ", embedder_loss.item())
                break
-        # for i in np.random.permutation(num_classes_new):
-        #     feats = []
-        #     datanum = 0
-        #     for j, data in enumerate(tgt_train_loaders[i]):
-                
-        #         if transform is not None:
-        #             x, y, z = data
-        #         else:
-        #             x, y = data 
-                
-        #         x = x.to(args.device)
-        #         out = tgt_model(x)
-        #         if len(out.shape) > 2:
-        #             out = out.mean(1)
-        #         feats.append(out)
-        #         datanum += x.shape[0]
-        #         if datanum > args.maxsamples: break
-        #     print("len of tgt feats: ", len(feats))
-        #     print("shape of one ele in tgt feats: ", feats[0].shape)
-        #     feats = torch.cat(feats, 0)
-        #     if feats.shape[0] > 1:
-        #         print("tgt_feats_shape: ",feats.shape)
-        #         loss = tgt_class_weights[i] * score_func(feats)
-        #         loss.backward()
-        #         total_loss += loss.item()
 
-        # time_end = default_timer()  
-        # times.append(time_end - time_start) 
+        tgt_model.train_embedder = False
+        x_batch = []
+        y_batch = []
+        for batch in random_batches: 
+            if transform is not None:
+                     x, y, z = batch
+            else:
+                     x, y = batch 
+            
+            x = x.to(args.device)
+            out = tgt_model(x)
+            if len(out.shape) > 2:
+                out = out.mean(1)
+            x_batch.append(out)    
+            y_batch.append(y)
+            
+            if len(x_batch) == 16:
+                print("len of len x_batch: ", len(x_batch))
+                x_batch = torch.cat(x_batch, 0)
+                y_batch = torch.cat(y_batch, 0).long()
+                c_loss = (16/len(random_batches))*contrastive_loss(x_batch,y_batch)
+                c_loss.backward()
+                print("contrastive loss func: ", c_loss.item())
+                break
 
-        # total_losses.append(total_loss)
-        # # embedder_stats is loss and time
-        # embedder_stats.append([total_losses[-1], times[-1]])
-        # print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
-        # if (logging is not None):
-        #     log_message = "[train embedder %d %.6f] time elapsed: %.4f\ttotal loss: %.4f" % (
-        #    ep, tgt_model_optimizer.param_groups[0]['lr'], times[-1], total_losses[-1] )
-        #     logging.info(log_message)
-        # tgt_model_optimizer.step()
-        # tgt_model_scheduler.step()
-        # tgt_model_optimizer.zero_grad()
+        tgt_model.train_embedder = True
+        print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+
+
+        tgt_model_optimizer.step()
+        tgt_model_scheduler.step()
+        tgt_model_optimizer.zero_grad()
 
     del tgt_train_loader
     torch.cuda.empty_cache()
