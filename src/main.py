@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn # type: ignore
 from timeit import default_timer
 from tqdm import tqdm
-
+from Contrastive_Embedder import get_Contrastgt_model
 #from attrdict import AttrDict
 import yaml
 from types import SimpleNamespace
@@ -66,7 +66,9 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    #model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    model, embedder_stats = get_Contrastgt_model(args, root, sample_shape, num_classes, loss ,False, use_determined, context)
+    model.set_bodymodel_trainble()
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
@@ -249,7 +251,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
             scheduler.step()
 
         train_loss += l.item()
-        print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
+        #print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
         if i >= temp - 1:
             break
 

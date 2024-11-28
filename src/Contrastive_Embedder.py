@@ -17,6 +17,7 @@ import torch.nn.functional as F
 import torch
 import argparse
 from types import SimpleNamespace
+from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
 
 # Alignment Loss
 def align_loss(batch_features, labels, alpha=2):
@@ -158,6 +159,8 @@ class wrapper2D(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
+    def set_bodymodel_trainble(self,trainale = True):
+        set_grad_state(self.model, trainale)
 
     def forward(self, x):
        
@@ -246,7 +249,8 @@ class wrapper1D(torch.nn.Module):
         #set_grad_state(self.model, False)
         #set_grad_state(self.predictor, False)
 
-
+    def set_bodymodel_trainble(self,trainale = True):
+        set_grad_state(self.model, trainale)
     def forward(self, x):
         if self.weight == 'swin':
             if self.output_raw:
@@ -365,13 +369,13 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True, train_embedder = True):
+def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True, train_embedder = True):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
         IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
             
-        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out, classification = False, train_embedder= False)
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
         src_model = src_model.to(args.device).eval()
         src_model.train_embedder = True    
         src_feats = []
@@ -462,7 +466,9 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
                 out = out.mean(1)
           
             features.append(out)
-            if len(features) == args.maxsamples :
+            print("len feature: ", len(features))
+            print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+            if len(features) == 1  :
                print("shape of features: ", len(features))
                features = torch.cat(features, 0)
                embedder_loss = (len(features)/len(random_batches)) * score_func(features)
@@ -483,20 +489,21 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_
             out = tgt_model(x)
             if len(out.shape) > 2:
                 out = out.mean(1)
+               
             x_batch.append(out)    
             y_batch.append(y)
             
-            if len(x_batch) == 16:
+            if len(x_batch) == 1:
                 print("len of len x_batch: ", len(x_batch))
                 x_batch = torch.cat(x_batch, 0)
                 y_batch = torch.cat(y_batch, 0).long()
-                c_loss = (16/len(random_batches))*contrastive_loss(x_batch,y_batch)
+                c_loss = contrastive_loss(x_batch,y_batch)
                 c_loss.backward()
                 print("contrastive loss func: ", c_loss.item())
                 break
 
         tgt_model.train_embedder = True
-        print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+        # print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
 
 
         tgt_model_optimizer.step()
@@ -632,7 +639,184 @@ def Test():
             root = './datasets'
             dims, sample_shape, num_classes, loss, args = get_config(root, args)
             args.device = 'cuda'
-            model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False)
+            model, embedder_stats = get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False)
+            model.set_bodymodel_trainble()
+            if args.device == 'cuda':
+                model.cuda()
+                try:
+                   loss.cuda()
+                except:
+                    pass   
+            print("first call model : ")
+            print("all param count:", count_params(model))
+            print("trainabel params count :  ",count_trainable_params(model))    
+            train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
+            metric, compare_metrics = get_metric(root, args.dataset)
+            decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
+            transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+            context = None
+            train_losses = []
+            train_time = []
+            train_score = []
+            for ep in range( args.epochs + args.predictor_epochs):
+                
+                args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, module=None, n_train=n_train)
+                
+
+                time_start = default_timer()
+
+                train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
+                train_time_ep = default_timer() -  time_start 
+
+                if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
+                
+                    val_loss, val_score = evaluate(context, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
+                    train_losses.append(train_loss)
+                    train_score.append(val_score)
+                    train_time.append(train_time_ep)
+
+                    print("[train", "full" if ep >= args.predictor_epochs else "predictor", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
+            
+           
+
+                if ep == args.epochs + args.predictor_epochs - 1:
+                    print("\n------- Start Test --------")
+                    test_scores = []
+                    test_model = model
+                    test_time_start = default_timer()
+                    test_loss, test_score = evaluate(context, args, test_model, test_loader, loss, metric, n_test, decoder, transform, fsd_epoch=200 if args.dataset == 'FSD' else None)
+                    test_time_end = default_timer()
+                    test_scores.append(test_score)
+
+                    print("[test last]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
+
+           
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
+
+    model.train()             
+    train_loss = 0
+    optimizer.zero_grad()
+
+    for i, data in enumerate(loader):
+
+        if transform is not None:
+            x, y, z = data
+            z = z.to(args.device)
+        else:
+            x, y = data 
+        
+        x, y = x.to(args.device), y.to(args.device)
+        out = model(x)
+        
+        if isinstance(out, dict):
+            out = out['out']
+
+        if decoder is not None:
+            out = decoder.decode(out).view(x.shape[0], -1)
+            y = decoder.decode(y).view(x.shape[0], -1)
+
+        if transform is not None:
+            out = transform(out, z)
+            y = transform(y, z)
+
+        if args.dataset[:4] == "DRUG":
+            out = out.squeeze(1)
+        
+        l = loss(out, y)
+        l.backward()
+
+        if args.clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+
+        if (i + 1) % args.accum == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+        
+        if args.lr_sched_iter:
+            scheduler.step()
+
+        train_loss += l.item()
+        #print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
+        if i >= temp - 1:
+            break
+
+    if (not args.lr_sched_iter):
+        scheduler.step()
+
+    return train_loss / temp
+
+
+def evaluate(context, args, model, loader, loss, metric, n_eval, decoder=None, transform=None, fsd_epoch=None):
+    model.eval()
+    
+    eval_loss, eval_score = 0, 0
+    
+    if fsd_epoch is None:
+
+        ys, outs, n_eval, n_data = [], [], 0, 0
+
+        with torch.no_grad():
+            for i, data in enumerate(loader):
+                if transform is not None:
+                    x, y, z = data
+                    z = z.to(args.device)
+                else:
+                    x, y = data
+                                    
+                x, y = x.to(args.device), y.to(args.device)
+
+                out = model(x)
+
+                if isinstance(out, dict):
+                    out = out['out']
+
+                if decoder is not None:
+                    out = decoder.decode(out).view(x.shape[0], -1)
+                    y = decoder.decode(y).view(x.shape[0], -1)
+                                    
+                if transform is not None:
+                    out = transform(out, z)
+                    y = transform(y, z)
+
+                if args.dataset[:4] == "DRUG":
+                    out = out.squeeze(1)
+
+                outs.append(out)
+                ys.append(y)
+                n_data += x.shape[0]
+
+                if n_data >= args.eval_batch_size or i == len(loader) - 1:
+                    outs = torch.cat(outs, 0)
+                    ys = torch.cat(ys, 0)
+
+                    eval_loss += loss(outs, ys).item()
+                    eval_score += metric(outs, ys).item()
+                    n_eval += 1
+
+                    ys, outs, n_data = [], [], 0
+
+            eval_loss /= n_eval
+            eval_score /= n_eval
+
+    else:
+        outs, ys = [], []
+        with torch.no_grad():
+            for ix in range(loader.len):
+
+                x, y = loader[ix]
+                x, y = x.to(args.device), y.to(args.device)
+                out = model(x).mean(0).unsqueeze(0)
+                eval_loss += loss(out, y).item()
+                outs.append(torch.sigmoid(out).detach().cpu().numpy()[0])
+                ys.append(y.detach().cpu().numpy()[0])
+
+        outs = np.asarray(outs).astype('float32')
+        ys = np.asarray(ys).astype('int32')
+        stats = calculate_stats(outs, ys)
+        eval_score = 1-np.mean([stat['AP'] for stat in stats])
+        eval_loss /= n_eval
+
+    return eval_loss, eval_score
 
 if __name__ == '__main__':
     Test()
