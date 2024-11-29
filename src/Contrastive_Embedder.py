@@ -401,7 +401,9 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
         del src_model, src_train_loader    
 
     else:
-        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
+        src_feats = src_train_loader.dataset.tensors[0].mean(1)
+        src_ys = torch.zeros_like(src_train_loader.dataset.tensors[1])  # Set src_ys to all zeros
+
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
         del src_train_loader
     print("computing source feature: done")  
