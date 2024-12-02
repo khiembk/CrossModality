@@ -84,9 +84,6 @@ def contrastive_loss(batch_features, labels, alpha=2, t=2, lambda_align=1.0, lam
     uniform = uniform_loss(batch_features, t)
     return lambda_align * align + lambda_uniform * uniform
 
-
-
-
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     ys = torch.zeros(len(feats)) if ys is None else ys
 
@@ -95,7 +92,7 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
         ys = torch.from_numpy(ys).long().to('cpu')
 
     dataset = torch.utils.data.TensorDataset(feats, ys)
-    
+
     dist = DatasetDistance(src_train_dataset, dataset,
                                     inner_ot_method = 'exact' if exact else 'gaussian_approx',
                                     debiased_loss = True, inner_ot_debiased=True,
@@ -105,17 +102,76 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     d = dist.distance(maxsamples = len(src_train_dataset))
     return d
 
-     
-class wrapper2D(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True, classification = None, train_embedder = False):
+class wrapper2DAda(torch.nn.Module):
+    def __init__(self, input_shape, output_shape, use_embedder=True, lora_rank = 8 ,weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-        self.train_embedder = train_embedder
-        if (classification != None):
-            self.classification = classification
+        Adaconfig = AdaLoraConfig(
+        peft_type="ADALORA",  target_r = lora_rank , init_r= 10, lora_alpha=32, tinit =0, tfinal = 130,
+        target_modules=["query", "value", "key", "dense" ],
+        lora_dropout=0, total_step = 250, deltaT = 10
+        )
+        if weight == 'tiny':
+            arch_name = "microsoft/swin-tiny-patch4-window7-224"
+            embed_dim = 96
+            output_dim = 768
+            img_size = 224
+        elif weight == 'base':
+            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+            embed_dim = 128
+            output_dim = 1024
+            img_size = 224
+            patch_size = 4
 
-        print("2D classification : ", self.classification)    
+        if self.classification:
+            modelclass = SwinForImageClassification
+        else:
+            modelclass = SwinForMaskedImageModeling
+            
+        self.model = modelclass.from_pretrained(arch_name)
+        self.model.config.image_size = img_size
+        if drop_out is not None:
+            self.model.config.hidden_dropout_prob = drop_out 
+            self.model.config.attention_probs_dropout_prob = drop_out
+
+        self.model = modelclass.from_pretrained(arch_name, config=self.model.config) if not from_scratch else modelclass(self.model.config)
+        
+        if self.classification:
+            self.model.pooler = nn.AdaptiveAvgPool1d(1)
+            self.model.classifier = nn.Identity()
+            self.predictor = nn.Linear(in_features=output_dim, out_features=output_shape)
+        else:
+            self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
+            self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
+            self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
+        
+        self.model = AdaLoraModel(self.model, Adaconfig, "Adamodel")
+        
+        for name, param in self.model.decoder.named_parameters():
+            print(f"Setting trainable: {name}")
+            param.requires_grad = True
+        if use_embedder:
+            self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
+            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            # compute grad embedder 
+            set_grad_state(self.embedder, True)
+            self.model.swin.embeddings = self.embedder  
+
+
+    def forward(self, x):
+        
+        if self.output_raw:
+            return self.model.swin.embeddings(x)[0]
+        x = self.model(x).logits
+        return self.predictor(x)
+    
+class wrapper2D(torch.nn.Module):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
+        super().__init__()
+        self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
+        self.output_raw = True
+
         if weight == 'tiny':
             arch_name = "microsoft/swin-tiny-patch4-window7-224"
             embed_dim = 96
@@ -150,8 +206,8 @@ class wrapper2D(torch.nn.Module):
             self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
-        set_grad_state(self.model, False)
-        # set_grad_state(self.predictor, False) 
+        # set_grad_state(self.model, False)
+        # set_grad_state(self.predictor, False)
 
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
@@ -159,37 +215,15 @@ class wrapper2D(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
-    def set_bodymodel_trainble(self,trainale = True):
-        set_grad_state(self.model, trainale)
 
     def forward(self, x):
-       
         if self.output_raw:
-            if self.classification:
-                if self.train_embedder:
-                   return self.model.swin.embeddings(x)[0]
-                else :   
-                   return self.model(x).logits
-                
-            else:
-                if self.train_embedder:
-                    return self.model.swin.embeddings(x)[0]
-                else:
-                    embedding_output, input_dimensions = self.model.swin.embeddings(x)
-                    encodder_output = self.model.swin.encoder(embedding_output, input_dimensions)
-                    output_affterEncodder =  encodder_output.last_hidden_state
-                    return output_affterEncodder
-        
-        if self.train_predictor:
-            if self.classification:    
-               return self.predictor(x)
-            else: 
-                decodder_outout = self.model.decoder(x)
-                return self.predictor(decodder_outout)
-
+            return self.model.swin.embeddings(x)[0]
+            
         x = self.model(x).logits
-        return self.predictor(x)
 
+        return self.predictor(x)
+             
 
 class wrapper1D(torch.nn.Module):
     def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True):
@@ -220,7 +254,8 @@ class wrapper1D(torch.nn.Module):
         print("nomal 1D lora ",count_params(self.model))
         if use_embedder:
             self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            if warm_init :
+                embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
@@ -249,34 +284,34 @@ class wrapper1D(torch.nn.Module):
         #set_grad_state(self.model, False)
         #set_grad_state(self.predictor, False)
 
-    def set_bodymodel_trainble(self,trainale = True):
-        set_grad_state(self.model, trainale)
+
     def forward(self, x):
         if self.weight == 'swin':
             if self.output_raw:
-                return  self.model(x).logits
+                return self.model.swin.embeddings(x)[0]
             # nomal foward 
             x = self.model(x).logits
             return self.predictor(x)
         
+        # return embedder output
+        if self.output_raw:
+            return self.embedder(x) 
 
         x = self.embedder(x)
         # foward with dense and not dense
         if self.dense:
             x = self.model(inputs_embeds=x)['last_hidden_state']
-            if self.output_raw :
-                return x
             x = self.predictor(x)
         else:
             x = self.model(inputs_embeds=x)['pooler_output']
-            if self.output_raw :
-                return x
             x = self.predictor(x)
 
         if x.shape[1] == 1 and len(x.shape) == 2:
             x = x.squeeze(1)
 
         return x
+
+
 
 
 
@@ -369,7 +404,7 @@ class Embeddings1D(nn.Module):
 
 ####################################################
 
-def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True, train_embedder = True):
+def get_Stgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
@@ -377,7 +412,7 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             
         src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
         src_model = src_model.to(args.device).eval()
-        src_model.train_embedder = True    
+            
         src_feats = []
         src_ys = []
         for i, data in enumerate(src_train_loader):
@@ -389,26 +424,18 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
             
             if len(out.shape) > 2:
                 out = out.mean(1)
-            if (i==1):
-                print("shape of source: ", out.shape)
-            #src_ys.append(y_.detach().cpu())
-            src_ys.append(torch.zeros_like(y_.detach().cpu()))
+
+            src_ys.append(y_.detach().cpu())
             src_feats.append(out.detach().cpu())
         src_feats = torch.cat(src_feats, 0)
         src_ys = torch.cat(src_ys, 0).long()
-        
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
-        del src_model, src_train_loader    
+        del src_model    
 
     else:
-        src_feats = src_train_loader.dataset.tensors[0].mean(1)
-        src_ys = torch.zeros_like(src_train_loader.dataset.tensors[1])  # Set src_ys to all zeros
-
+        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-        del src_train_loader
-    print("computing source feature: done")  
-    print("src_train_dataset_x_shape: ", next(iter(src_train_dataset))[0].shape) 
-    torch.cuda.empty_cache() 
+        
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
         
@@ -419,10 +446,14 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
 
     print("src feat shape", src_feats.shape, src_ys.shape, "num classes", num_classes_new) 
 
-    #tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
+    tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
+
+    
 
     wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
     tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    
+    
     tgt_model = tgt_model.to(args.device).train()
     
     print("Wrapper_func : ")
@@ -444,87 +475,225 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     
     score = 0
     total_losses, times, embedder_stats = [], [], []
-    backward_num = 0
     # Train embeder 
     print("Train embedder with ep = ",args.embedder_epochs)
-    print("len of tgt_train_loader : ", len(tgt_train_loader))
-    tgt_train_loader_list = list(tgt_train_loader)  # Convert DataLoader to a list
-    num_samples = args.maxsamples
-    print("num_sample: ", num_samples)
-    tgt_model.train_embedder = True
-    for ep in range(100):   
-        num_backward = 0
-        random_batches = random.sample(tgt_train_loader_list, num_samples)
+    for ep in range(args.embedder_epochs):   
+
         total_loss = 0    
         time_start = default_timer()
-        features = []
-        # for batch in random_batches:
-        #     if transform is not None:
-        #              x, y, z = batch
-        #     else:
-        #              x, y = batch 
-            
-        #     x = x.to(args.device)
-        #     out = tgt_model(x)
-        #     if len(out.shape) > 2:
-        #         out = out.mean(1)
-          
-        #     features.append(out)
-        #     print("len feature: ", len(features))
-        #     print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
-        #     if len(features) == 1  :
-        #        print("shape of features: ", len(features))
-        #        features = torch.cat(features, 0)
-        #        embedder_loss = (len(features)/len(random_batches)) * score_func(features)
-        #        embedder_loss.backward()
-        #        print("loss func: ", embedder_loss.item())
-        #        break
 
-        tgt_model.train_embedder = False
-        x_batch = []
-        y_batch = []
-        for batch in random_batches: 
-            if transform is not None:
-                     x, y, z = batch
-            else:
-                     x, y = batch 
-            
-            x = x.to(args.device)
-            out = tgt_model(x)
-            if len(out.shape) > 2:
-                out = out.mean(1)
-               
-            x_batch.append(out)    
-            y_batch.append(y)
-            
-            if len(x_batch) == 1:
-                print("len of len x_batch: ", len(x_batch))
-                x_batch = torch.cat(x_batch, 0)
-                y_batch = torch.cat(y_batch, 0).long()
-                c_loss = contrastive_loss(x_batch,y_batch)
-                num_backward = num_backward + 1
-                c_loss.backward()
-                print("contrastive loss func: ", c_loss.item())
-                break
+        for i in np.random.permutation(num_classes_new):
+            feats = []
+            datanum = 0
 
-        tgt_model.train_embedder = True
-        # print(f"Memory reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB")
+            for j, data in enumerate(tgt_train_loaders[i]):
+                
+                if transform is not None:
+                    x, y, z = data
+                else:
+                    x, y = data 
+                
+                x = x.to(args.device)
+                print("shape of input model: ", x.shape)
+                out = tgt_model(x)
+                print("shape of output model: ", out.shape)
+                feats.append(out)
+                datanum += x.shape[0]
+                print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                if datanum > args.maxsamples: break
+            print("shape feats[0] before: ", feats[0].shape)
+            feats = torch.cat(feats, 0).mean(1)
+            print("shape feats after: ", feats.shape)
+            if feats.shape[0] > 1:
+                print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                loss = tgt_class_weights[i] * score_func(feats)
+                loss.backward()
+                total_loss += loss.item()
 
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
 
+        total_losses.append(total_loss)
+        # embedder_stats is loss and time
+        embedder_stats.append([total_losses[-1], times[-1]])
+        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
+        if (logging is not None):
+            log_message = "[train embedder %d %.6f] time elapsed: %.4f\ttotal loss: %.4f" % (
+           ep, tgt_model_optimizer.param_groups[0]['lr'], times[-1], total_losses[-1] )
+            logging.info(log_message)
         tgt_model_optimizer.step()
         tgt_model_scheduler.step()
         tgt_model_optimizer.zero_grad()
-        print("num backward: ", num_backward)
-        if (logging is not None):
-            log_message = f"num backward: {num_backward}"
-            logging.info(log_message)
-    del tgt_train_loader
+
+    del tgt_train_loader, tgt_train_loaders
     torch.cuda.empty_cache()
-    tgt_model.train_predictor = False
-    tgt_model.train_embedder = False
+
     tgt_model.output_raw = False
+    
     return tgt_model, embedder_stats
 
+#################################################
+def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
+    
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    if len(sample_shape) == 4:
+        IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
+            
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+        src_model = src_model.to(args.device).eval()
+            
+        src_feats = []
+        src_ys = []
+        for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            
+            out = src_model(x_)
+            
+            if len(out.shape) > 2:
+                out = out.mean(1)
+
+            src_ys.append(y_.detach().cpu())
+            src_feats.append(out.detach().cpu())
+        src_feats = torch.cat(src_feats, 0)
+        src_ys = torch.cat(src_ys, 0).long()
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+        del src_model    
+
+    else:
+        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
+        zero_labels = torch.zeros_like(src_ys)
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, zero_labels)
+        
+    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+        
+    if args.infer_label:
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+    else:
+        num_classes_new = num_classes
+
+    print("src feat shape", src_feats.shape, src_ys.shape, "num classes", num_classes_new) 
+
+    #tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
+
+    
+
+    wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
+    tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    
+    
+    tgt_model = tgt_model.to(args.device).train()
+    
+   
+    print("all param count:", count_params(tgt_model))
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    args, _, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
+    tgt_model_optimizer.zero_grad()
+    print("get_optimizer : ")
+    print("all param count:", count_params(tgt_model))
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    if args.objective == 'otdd-exact':
+        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+    elif args.objective == 'otdd-gaussian':
+        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=False)
+    elif args.objective == 'l2':
+        score_func = partial(l2, src_train_dataset=src_train_dataset)
+    else:
+        score_func = MMD_loss(src_data=src_feats, maxsamples=args.maxsamples)
+    
+    score = 0
+    total_losses, times, embedder_stats = [], [], []
+    # Train embeder 
+    print("Train embedder with ep = ",args.embedder_epochs)
+    for ep in range(args.embedder_epochs):   
+
+        total_loss = 0    
+        time_start = default_timer()
+
+        for i in np.random.permutation(num_classes_new):
+            feats = []
+            datanum = 0
+            shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+            
+            for j, data in enumerate(shuffled_loader):
+                
+                if transform is not None:
+                    x, y, z = data
+                else:
+                    x, y = data 
+                
+                x = x.to(args.device)
+                
+                #print("shape of input model: ", x.shape)
+                out = tgt_model(x)
+                #print("shape of output model: ", out.shape)
+                feats.append(out)
+                datanum += x.shape[0]
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                if datanum > 3*args.maxsamples: break
+            #print("shape feats[0] before: ", feats[0].shape)
+            feats = torch.cat(feats, 0).mean(1)
+            #print("shape feats after: ", feats.shape)
+            if feats.shape[0] > 1:
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                loss.backward()
+                total_loss += loss.item()
+
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
+
+        total_losses.append(total_loss)
+        # embedder_stats is loss and time
+        embedder_stats.append([total_losses[-1], times[-1]])
+        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
+        if (logging is not None):
+            log_message = "[train embedder %d %.6f] time elapsed: %.4f\ttotal loss: %.4f" % (
+           ep, tgt_model_optimizer.param_groups[0]['lr'], times[-1], total_losses[-1] )
+            logging.info(log_message)
+        tgt_model_optimizer.step()
+        tgt_model_scheduler.step()
+        tgt_model_optimizer.zero_grad()
+
+    del tgt_train_loader, tgt_train_loaders
+    torch.cuda.empty_cache()
+
+    tgt_model.output_raw = False
+    
+    return tgt_model, embedder_stats
+
+#################################################
+def infer_labels(loader, k = 10):
+    from sklearn.cluster import k_means, MiniBatchKMeans
+    
+    if hasattr(loader.dataset, 'tensors'):
+        X, Y = loader.dataset.tensors[0].cpu(), loader.dataset.tensors[1].cpu().numpy()
+        try:
+            Z = loader.dataset.tensors[2].cpu()
+        except:
+            Z = None
+    else:
+        X, Y, Z = get_tensors(loader.dataset)
+
+    Y = Y.reshape(len(Y), -1)
+
+    if len(Y) <= 10000:
+        labeling_fun = lambda Y: torch.LongTensor(k_means(Y, k)[1])
+        Y = labeling_fun(Y).unsqueeze(1)
+    else:
+        kmeans = MiniBatchKMeans(n_clusters=k, batch_size=10000).fit(Y)
+        Y = torch.LongTensor(kmeans.predict(Y)).unsqueeze(1)
+
+    if Z is None:
+        return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
+    return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y, Z), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
 
 
 def load_by_class(loader, num_classes):
@@ -584,248 +753,4 @@ def get_tensors(dataset):
 
     return xs, ys, zs
 
-def infer_labels(loader, k = 10):
-    from sklearn.cluster import k_means, MiniBatchKMeans
-    
-    if hasattr(loader.dataset, 'tensors'):
-        X, Y = loader.dataset.tensors[0].cpu(), loader.dataset.tensors[1].cpu().numpy()
-        try:
-            Z = loader.dataset.tensors[2].cpu()
-        except:
-            Z = None
-    else:
-        X, Y, Z = get_tensors(loader.dataset)
-
-    Y = Y.reshape(len(Y), -1)
-
-    if len(Y) <= 10000:
-        labeling_fun = lambda Y: torch.LongTensor(k_means(Y, k)[1])
-        Y = labeling_fun(Y).unsqueeze(1)
-    else:
-        kmeans = MiniBatchKMeans(n_clusters=k, batch_size=10000).fit(Y)
-        Y = torch.LongTensor(kmeans.predict(Y)).unsqueeze(1)
-
-    if Z is None:
-        return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
-    return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y, Z), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
-
-def Test():
-    parser = argparse.ArgumentParser(description='ORCA')
-    parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
-    parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
-    parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
-    parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
-    parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
-    parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
-    args = parser.parse_args()
-    lora_rank = args.lora_rank
-    embedder_ep = args.embedder_ep
-    save_per_ep = args.save_per_ep
-    mode = args.mode 
-    root_dataset = args.root_dataset
-    log_folder = args.log_folder
-    warm_init = args.warm_init
-    print("current mode: ", mode)
-    if args.config is not None:     
-        import yaml
-
-        with open(args.config, 'r') as stream:
-            #args = AttrDict(yaml.safe_load(stream)['hyperparameters']
-            #with open('configs/cifar100.yaml', 'r') as stream:
-            config = yaml.safe_load(stream)
-            args = SimpleNamespace(**config['hyperparameters'])
-            args.experiment_id = lora_rank
-            if (embedder_ep != None): 
-                args.embedder_epochs = embedder_ep
-            if (mode == 'from_scratch'):
-                args.experiment_id = -2
-            if (args.embedder_epochs > 0):
-                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-            
-            root = './datasets'
-            dims, sample_shape, num_classes, loss, args = get_config(root, args)
-            args.device = 'cuda'
-            model, embedder_stats = get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False)
-            model.set_bodymodel_trainble()
-            if args.device == 'cuda':
-                model.cuda()
-                try:
-                   loss.cuda()
-                except:
-                    pass   
-            print("first call model : ")
-            print("all param count:", count_params(model))
-            print("trainabel params count :  ",count_trainable_params(model))    
-            train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
-            metric, compare_metrics = get_metric(root, args.dataset)
-            decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
-            transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-            context = None
-            train_losses = []
-            train_time = []
-            train_score = []
-            for ep in range( args.epochs + args.predictor_epochs):
-                
-                args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, module=None, n_train=n_train)
-                
-
-                time_start = default_timer()
-
-                train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
-                train_time_ep = default_timer() -  time_start 
-
-                if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
-                
-                    val_loss, val_score = evaluate(context, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
-                    train_losses.append(train_loss)
-                    train_score.append(val_score)
-                    train_time.append(train_time_ep)
-
-                    print("[train", "full" if ep >= args.predictor_epochs else "predictor", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
-            
-           
-
-                if ep == args.epochs + args.predictor_epochs - 1:
-                    print("\n------- Start Test --------")
-                    test_scores = []
-                    test_model = model
-                    test_time_start = default_timer()
-                    test_loss, test_score = evaluate(context, args, test_model, test_loader, loss, metric, n_test, decoder, transform, fsd_epoch=200 if args.dataset == 'FSD' else None)
-                    test_time_end = default_timer()
-                    test_scores.append(test_score)
-
-                    print("[test last]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
-
-           
-def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
-
-    model.train()             
-    train_loss = 0
-    optimizer.zero_grad()
-
-    for i, data in enumerate(loader):
-
-        if transform is not None:
-            x, y, z = data
-            z = z.to(args.device)
-        else:
-            x, y = data 
-        
-        x, y = x.to(args.device), y.to(args.device)
-        out = model(x)
-        
-        if isinstance(out, dict):
-            out = out['out']
-
-        if decoder is not None:
-            out = decoder.decode(out).view(x.shape[0], -1)
-            y = decoder.decode(y).view(x.shape[0], -1)
-
-        if transform is not None:
-            out = transform(out, z)
-            y = transform(y, z)
-
-        if args.dataset[:4] == "DRUG":
-            out = out.squeeze(1)
-        
-        l = loss(out, y)
-        l.backward()
-
-        if args.clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-
-        if (i + 1) % args.accum == 0:
-            optimizer.step()
-            optimizer.zero_grad()
-        
-        if args.lr_sched_iter:
-            scheduler.step()
-
-        train_loss += l.item()
-        #print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
-        if i >= temp - 1:
-            break
-
-    if (not args.lr_sched_iter):
-        scheduler.step()
-
-    return train_loss / temp
-
-
-def evaluate(context, args, model, loader, loss, metric, n_eval, decoder=None, transform=None, fsd_epoch=None):
-    model.eval()
-    
-    eval_loss, eval_score = 0, 0
-    
-    if fsd_epoch is None:
-
-        ys, outs, n_eval, n_data = [], [], 0, 0
-
-        with torch.no_grad():
-            for i, data in enumerate(loader):
-                if transform is not None:
-                    x, y, z = data
-                    z = z.to(args.device)
-                else:
-                    x, y = data
-                                    
-                x, y = x.to(args.device), y.to(args.device)
-
-                out = model(x)
-
-                if isinstance(out, dict):
-                    out = out['out']
-
-                if decoder is not None:
-                    out = decoder.decode(out).view(x.shape[0], -1)
-                    y = decoder.decode(y).view(x.shape[0], -1)
-                                    
-                if transform is not None:
-                    out = transform(out, z)
-                    y = transform(y, z)
-
-                if args.dataset[:4] == "DRUG":
-                    out = out.squeeze(1)
-
-                outs.append(out)
-                ys.append(y)
-                n_data += x.shape[0]
-
-                if n_data >= args.eval_batch_size or i == len(loader) - 1:
-                    outs = torch.cat(outs, 0)
-                    ys = torch.cat(ys, 0)
-
-                    eval_loss += loss(outs, ys).item()
-                    eval_score += metric(outs, ys).item()
-                    n_eval += 1
-
-                    ys, outs, n_data = [], [], 0
-
-            eval_loss /= n_eval
-            eval_score /= n_eval
-
-    else:
-        outs, ys = [], []
-        with torch.no_grad():
-            for ix in range(loader.len):
-
-                x, y = loader[ix]
-                x, y = x.to(args.device), y.to(args.device)
-                out = model(x).mean(0).unsqueeze(0)
-                eval_loss += loss(out, y).item()
-                outs.append(torch.sigmoid(out).detach().cpu().numpy()[0])
-                ys.append(y.detach().cpu().numpy()[0])
-
-        outs = np.asarray(outs).astype('float32')
-        ys = np.asarray(ys).astype('int32')
-        stats = calculate_stats(outs, ys)
-        eval_score = 1-np.mean([stat['AP'] for stat in stats])
-        eval_loss /= n_eval
-
-    return eval_loss, eval_score
-
-if __name__ == '__main__':
-    Test()
 

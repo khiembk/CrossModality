@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn # type: ignore
 from timeit import default_timer
 from tqdm import tqdm
-from Contrastive_Embedder import get_Contrastgt_model, get_ORtgt_model
+from Contrastive_Embedder import  get_Stgt_model, get_Contrastgt_model
 #from attrdict import AttrDict
 import yaml
 from types import SimpleNamespace
@@ -66,7 +66,8 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    #model, embedder_stats = get_Stgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
+    model, embedder_stats = get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging)
     model.set_bodymodel_trainble()
     print("first call model : ")
     print("all param count:", count_params(model))
