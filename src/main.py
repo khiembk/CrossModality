@@ -66,8 +66,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
 
-    #model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
-    model, embedder_stats = get_ORtgt_model(args, root, sample_shape, num_classes, loss ,False, use_determined, context, logging= logging)
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging, warm_init= warm_init)
     model.set_bodymodel_trainble()
     print("first call model : ")
     print("all param count:", count_params(model))
