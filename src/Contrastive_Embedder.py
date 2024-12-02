@@ -215,7 +215,10 @@ class wrapper2D(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
-
+    def set_bodymodel_trainble(self):
+        set_grad_state(self.model, True)
+        set_grad_state(self.predictor, True)
+        
     def forward(self, x):
         if self.output_raw:
             return self.model.swin.embeddings(x)[0]
@@ -284,6 +287,9 @@ class wrapper1D(torch.nn.Module):
         #set_grad_state(self.model, False)
         #set_grad_state(self.predictor, False)
 
+    def set_bodymodel_trainble(self):
+        set_grad_state(self.model, True)
+        set_grad_state(self.predictor, True)
 
     def forward(self, x):
         if self.weight == 'swin':
@@ -662,7 +668,7 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
         tgt_model_scheduler.step()
         tgt_model_optimizer.zero_grad()
 
-    del tgt_train_loader, tgt_train_loaders
+    del tgt_train_loader
     torch.cuda.empty_cache()
 
     tgt_model.output_raw = False
