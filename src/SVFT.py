@@ -28,8 +28,9 @@ def replace_svft_with_fused_linear(model, target_modules_list):
 
     # filter out svft layer
     target_modules_list = [l for l in target_modules_list if "svft_layer" not in l]
-
+    #print(target_modules_list[0])
     for target_path in tqdm(reversed(target_modules_list), total=len(target_modules_list)):
+        #print("target layer: ", target_path, flush=True)
         parent_path = target_path[: target_path.rfind(".")] if "." in target_path else ""
         target_name = target_path.split(".")[-1]
         parent = model.get_submodule(parent_path) if parent_path else model
@@ -49,6 +50,7 @@ def create_and_replace_modules(model, target_modules_list, create_fn):
     print("Replacing Linear layers with SVFT layers")
 
     for target_path in tqdm(reversed(target_modules_list), total=len(target_modules_list)):
+        #print("target layer: ", target_path, flush=True)
         parent_path = target_path[: target_path.rfind(".")] if "." in target_path else ""
         target_name = target_path.split(".")[-1]
         parent = model.get_submodule(parent_path) if parent_path else model
@@ -96,7 +98,15 @@ class SVFTLayer(nn.Module):
         self.u = nn.Parameter(u.clone().detach().contiguous(), requires_grad=False)
 
         s_pre = s.cpu().detach().clone().contiguous()
-        self.s_pre_edge_index = torch.sparse.spdiags(s_pre, torch.LongTensor([0]), (self.n, self.n)).coalesce().indices()
+
+        if s_pre.ndimension() == 1:
+            self.s_pre_edge_index = torch.sparse.spdiags(s_pre, torch.LongTensor([0]), (self.n, self.n)).coalesce().indices()
+        elif s_pre.ndimension() == 2:
+            self.s_pre_edge_index = torch.sparse.spdiags(s_pre, torch.LongTensor([0]), (self.n, self.n)).coalesce().indices()
+        else:
+            print("s size: ", s.shape)
+            s_pre = s_pre.view(-1)  
+            self.s_pre_edge_index = torch.sparse.spdiags(s_pre, torch.LongTensor([0]), (self.n, self.n)).coalesce().indices()
         self.s_pre = nn.Parameter(s_pre, requires_grad=False)
         
         if pattern=="banded":  
@@ -151,9 +161,13 @@ class SVFTLayer(nn.Module):
 
 
     def get_weights(self):
-        s = SparseTensor(row=self.s_row, col=self.s_col, value=self.s*F.sigmoid(self.gate))
-        s_pre = SparseTensor(row=self.s_pre_row, col=self.s_pre_col, value=self.s_pre)
-        del_s = s_pre + s
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        s = SparseTensor(row=self.s_row, col=self.s_col, value=self.s * F.sigmoid(self.gate)).to(device)
+        s_pre = SparseTensor(row=self.s_pre_row, col=self.s_pre_col, value=self.s_pre).to(device)
+        # s = SparseTensor(row=self.s_row, col=self.s_col, value=self.s*F.sigmoid(self.gate))
+        # s_pre = SparseTensor(row=self.s_pre_row, col=self.s_pre_col, value=self.s_pre)
+        del_s = s_pre + s 
+
         weight = (del_s @ self.v).T
         weight = weight @ self.u.T
         return weight
@@ -181,7 +195,8 @@ class LinearWithSVFT(nn.Module):
 
         # since linear.weight is on GPU, computing SVD will be significantly faster
         svd = torch.linalg.svd(linear.weight, full_matrices=False)
-
+        assert svd[1].ndimension()==1  
+        # print("s1 size is: ",svd[1].ndimension())
         self.svft_layer = SVFTLayer(svd[0], 
                                     svd[1], 
                                     svd[2], 
