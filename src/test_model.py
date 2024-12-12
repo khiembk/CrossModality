@@ -9,6 +9,71 @@ import os
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 import torch.nn as nn
 from lp_embedder import Embeddings2D
+from functools import partial
+from SVFT import LinearWithSVFT, create_and_replace_modules , get_target_modules_list
+from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
+from task_configs import set_decoder_trainable
+class wrapper2D(torch.nn.Module):
+    def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
+        super().__init__()
+        self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
+        self.output_raw = True
+
+        if weight == 'tiny':
+            arch_name = "microsoft/swin-tiny-patch4-window7-224"
+            embed_dim = 96
+            output_dim = 768
+            img_size = 224
+        elif weight == 'base':
+            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+            embed_dim = 128
+            output_dim = 1024
+            img_size = 224
+            patch_size = 4
+
+        if self.classification:
+            modelclass = SwinForImageClassification
+        else:
+            modelclass = SwinForMaskedImageModeling
+            
+        self.model = modelclass.from_pretrained(arch_name)
+        self.model.config.image_size = img_size
+        if drop_out is not None:
+            self.model.config.hidden_dropout_prob = drop_out 
+            self.model.config.attention_probs_dropout_prob = drop_out
+
+        self.model = modelclass.from_pretrained(arch_name, config=self.model.config) if not from_scratch else modelclass(self.model.config)
+
+        if self.classification:
+            self.model.pooler = nn.AdaptiveAvgPool1d(1)
+            self.model.classifier = nn.Identity()
+            self.predictor = nn.Linear(in_features=output_dim, out_features=output_shape)
+        else:
+            self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
+            self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
+            self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
+
+        # set_grad_state(self.model, False)
+        # set_grad_state(self.predictor, False)
+
+        if use_embedder:
+            self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
+            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            set_grad_state(self.embedder, True)
+            self.model.swin.embeddings = self.embedder  
+
+    def set_bodymodel_trainble(self):
+        set_grad_state(self.model, True)
+        set_grad_state(self.predictor, True)
+        
+    def forward(self, x):
+        if self.output_raw:
+            return self.model.swin.embeddings(x)[0]
+            
+        x = self.model(x).logits
+
+        return self.predictor(x)
+
 class wrapper2D_pretrain(torch.nn.Module): 
     def __init__(self, input_shape, output_shape, lora_rank=1, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, rankLoRA=1, warm_init=True, classification=None, train_embedder=False):
         super().__init__()
@@ -202,16 +267,30 @@ def test1D_model():
 
 def test2D_model():
     sample_shape = (3,224,224)
-    output_shape = 3
-    model = wrapper2D_pretrain(sample_shape,output_shape)
-    model1 = wrapper2D_pretrain(sample_shape,output_shape)
-    model.get_differnt_rank_all_layer_with_model(model, model1)
-    #print(model)
-    # print("trainable params: ", count_trainable_params(model))
-    # print("all params: ", count_params(model))
-    # for name, param in model.named_parameters():
-    #    if  param.requires_grad:
-    #        print(f"Layer: {name}")
+    output_shape = 1
+    model = wrapper2D(sample_shape,output_shape)
+    
+    # for param in model.parameters():
+    #         param.requires_grad = False
+    
+
+    lora_target_modules = ["query", "value", "key", "projection","dense" ]
+    print(f"Target Modules: {lora_target_modules}")
+    off_diag = 1
+    assign_svft_layer = partial(LinearWithSVFT, 
+                                    off_diag=off_diag, 
+                                    pattern= "banded", 
+                                    rank= None, 
+                                    fill_orthonormal= False)
+        
+    create_and_replace_modules(model, get_target_modules_list(model, lora_target_modules), assign_svft_layer)
+    #set_decoder_trainable(model)
+    print("trainable params: ", count_trainable_params(model))
+    print("all params: ", count_params(model))
+    for name, param in model.named_parameters():
+       if not param.requires_grad:
+           print(f"Layer: {name}")
+    
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
