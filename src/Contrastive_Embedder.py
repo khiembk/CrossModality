@@ -102,70 +102,6 @@ def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     d = dist.distance(maxsamples = len(src_train_dataset))
     return d
 
-class wrapper2DAda(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, lora_rank = 8 ,weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False):
-        super().__init__()
-        self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
-        self.output_raw = True
-        Adaconfig = AdaLoraConfig(
-        peft_type="ADALORA",  target_r = lora_rank , init_r= 10, lora_alpha=32, tinit =0, tfinal = 130,
-        target_modules=["query", "value", "key", "dense" ],
-        lora_dropout=0, total_step = 250, deltaT = 10
-        )
-        if weight == 'tiny':
-            arch_name = "microsoft/swin-tiny-patch4-window7-224"
-            embed_dim = 96
-            output_dim = 768
-            img_size = 224
-        elif weight == 'base':
-            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
-            embed_dim = 128
-            output_dim = 1024
-            img_size = 224
-            patch_size = 4
-
-        if self.classification:
-            modelclass = SwinForImageClassification
-        else:
-            modelclass = SwinForMaskedImageModeling
-            
-        self.model = modelclass.from_pretrained(arch_name)
-        self.model.config.image_size = img_size
-        if drop_out is not None:
-            self.model.config.hidden_dropout_prob = drop_out 
-            self.model.config.attention_probs_dropout_prob = drop_out
-
-        self.model = modelclass.from_pretrained(arch_name, config=self.model.config) if not from_scratch else modelclass(self.model.config)
-        
-        if self.classification:
-            self.model.pooler = nn.AdaptiveAvgPool1d(1)
-            self.model.classifier = nn.Identity()
-            self.predictor = nn.Linear(in_features=output_dim, out_features=output_shape)
-        else:
-            self.pool_seq_dim = adaptive_pooler(output_shape[1] if isinstance(output_shape, tuple) else 1)
-            self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
-            self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
-        
-        self.model = AdaLoraModel(self.model, Adaconfig, "Adamodel")
-        
-        for name, param in self.model.decoder.named_parameters():
-            print(f"Setting trainable: {name}")
-            param.requires_grad = True
-        if use_embedder:
-            self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
-            embedder_init(self.model.swin.embeddings, self.embedder, train_embedder=train_epoch > 0)
-            # compute grad embedder 
-            set_grad_state(self.embedder, True)
-            self.model.swin.embeddings = self.embedder  
-
-
-    def forward(self, x):
-        
-        if self.output_raw:
-            return self.model.swin.embeddings(x)[0]
-        x = self.model(x).logits
-        return self.predictor(x)
-    
 class wrapper2D(torch.nn.Module):
     def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
         super().__init__()
@@ -620,6 +556,7 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
 
         for i in np.random.permutation(num_classes_new):
             feats = []
+            tgt_ys = []
             datanum = 0
             shuffled_loader = torch.utils.data.DataLoader(
                 tgt_train_loader.dataset,
@@ -636,20 +573,23 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
                     x, y = data 
                 
                 x = x.to(args.device)
-                
+                tgt_ys.append(y)
                 #print("shape of input model: ", x.shape)
                 out = tgt_model(x)
                 #print("shape of output model: ", out.shape)
                 feats.append(out)
                 datanum += x.shape[0]
                 #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                if datanum > 3*args.maxsamples: break
+                if datanum > 4*args.maxsamples: break
             #print("shape feats[0] before: ", feats[0].shape)
             feats = torch.cat(feats, 0).mean(1)
+            tgt_ys = torch.cat(tgt_ys, 0).long()
             #print("shape feats after: ", feats.shape)
             if feats.shape[0] > 1:
                 #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                ot_loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                #cur_contrastive_loss = (1/len(tgt_train_loader))*contrastive_loss(feats,tgt_ys)
+                loss = ot_loss #+ cur_contrastive_loss
                 loss.backward()
                 total_loss += loss.item()
 
