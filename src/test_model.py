@@ -1,18 +1,25 @@
 import embedder
 from utils import count_params, count_trainable_params, calculate_stats
-from lp_embedder import wrapper2DLORA_last,wrapper2DLORA
+import tqdm
 from embedder import wrapper2D
 import numpy as np
 import random
 import torch
 import os 
+import argparse
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 import torch.nn as nn
 from lp_embedder import Embeddings2D
+from timeit import default_timer
 from functools import partial
 from SVFT import LinearWithSVFT, create_and_replace_modules , get_target_modules_list
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 from task_configs import set_decoder_trainable
+from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
+from Contrastive_Embedder import get_SVFT_model
+from main import load_state
+from types import SimpleNamespace
+
 class wrapper2D(torch.nn.Module):
     def __init__(self, input_shape, output_shape, use_embedder=True, weight='base', train_epoch=0, activation=None, target_seq_len=None, drop_out=None, from_scratch=False, warm_init = True):
         super().__init__()
@@ -310,5 +317,181 @@ def main():
     # print("random number: ", random_num)
     test2D_model()
 
+def TestSVFT_scoring(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True):
+    set_seed()
+    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #args.device = 'cuda' 
+    print("The current device is: ", args.device)
+    root = '/datasets' if use_determined else './datasets'
+    if (DatasetRoot != None):
+        root = DatasetRoot + '/datasets'
+
+    print("Path folder dataset: ",root) 
+    torch.cuda.empty_cache()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed) 
+    torch.cuda.manual_seed_all(args.seed)
+    dims, sample_shape, num_classes, loss, args = get_config(root, args)    
+    model, embedder_stats = get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context)
+    
+    print("all param count:", count_params(model))
+    print("trainabel params count :  ",count_trainable_params(model))    
+    train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
+    metric, compare_metrics = get_metric(root, args.dataset)
+    decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 
+    model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, model, None, None, n_train, freq=args.validation_freq, test=True)
+    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    offset = 0 if ep_start == 0 else 1
+    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, module=None if args.predictor_epochs == 0 or ep_start >= args.predictor_epochs else 'predictor', n_train=n_train)
+    print("all param count:", count_params(model))
+    print("trainabel params count :  ",count_trainable_params(model))  
+    model = set_trainable(model)
+    print("affter set trainable : ")
+    print("all param count:", count_params(model))
+    print("trainabel params count :  ",count_trainable_params(model))  
+    #print learnabel 
+    for name, param in model.named_parameters():
+      if param.requires_grad:
+         print(name)
+         
+    print("[check]trainabel params count :  ",count_trainable_params(model))      
+    train_full = args.predictor_epochs == 0 or ep_start >= args.predictor_epochs
+   
+    if args.device == 'cuda':
+        model.cuda()
+        try:
+            loss.cuda()
+        except:
+            pass
+        if decoder is not None:
+            decoder.cuda()
+
+    print("\n------- Experiment Summary --------")
+    print("id:", args.experiment_id)
+    print("dataset:", args.dataset, "\tbatch size:", args.batch_size, "\tlr:", args.optimizer["params"]["lr"])
+    print("num train batch:", n_train, "\tnum validation batch:", n_val, "\tnum test batch:", n_test)
+    print("finetune method:", args.finetune_method)
+    print("all param count:", count_params(model),)
+    
+    print("trainabel params count: %d  ",count_trainable_params(model))
+    
+    print("print model")
+    print(model)
+    model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
+    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    train_time = []
+
+    print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
+    print("register hook")
+    for name, params in  model.named_modules():
+       if isinstance(params, LinearWithSVFT):
+           params.register_gradient_hook()
+
+    
+    time_start = default_timer()
+    train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
+    train_time_ep = default_timer() -  time_start 
+        
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
+
+    model.train()             
+    train_loss = 0
+    optimizer.zero_grad()
+
+    for i, data in enumerate(loader):
+
+        if transform is not None:
+            x, y, z = data
+            z = z.to(args.device)
+        else:
+            x, y = data 
+        
+        x, y = x.to(args.device), y.to(args.device)
+        out = model(x)
+
+        if isinstance(out, dict):
+            out = out['out']
+
+        if decoder is not None:
+            out = decoder.decode(out).view(x.shape[0], -1)
+            y = decoder.decode(y).view(x.shape[0], -1)
+
+        if transform is not None:
+            out = transform(out, z)
+            y = transform(y, z)
+
+        if args.dataset[:4] == "DRUG":
+            out = out.squeeze(1)
+        
+        l = loss(out, y)
+        l.backward()
+        train_loss += l.item()
+        if i >= temp - 1:
+            break
+    list_score = []
+    for name, params in  model.named_modules():
+            if isinstance(params, LinearWithSVFT):
+                print(name)
+                list_score.append(params.get_sorted_list_score())
+    
+    print("size of list score: ", len(list_score))
+    return train_loss / temp            
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='ORCA')
+    parser.add_argument('--config', type=str, default=None, help='config file name')
+    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
+    parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
+    parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
+    parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
+    parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
+    parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
+    parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
+    args = parser.parse_args()
+    lora_rank = args.lora_rank
+    embedder_ep = args.embedder_ep
+    save_per_ep = args.save_per_ep
+    mode = args.mode 
+    root_dataset = args.root_dataset
+    log_folder = args.log_folder
+    warm_init = args.warm_init
+    print("current mode: ", mode)
+    if args.config is not None:     
+        import yaml
+
+        with open(args.config, 'r') as stream:
+            #args = AttrDict(yaml.safe_load(stream)['hyperparameters']
+            #with open('configs/cifar100.yaml', 'r') as stream:
+            config = yaml.safe_load(stream)
+            args = SimpleNamespace(**config['hyperparameters'])
+            args.experiment_id = lora_rank
+            if (embedder_ep != None): 
+                args.embedder_epochs = embedder_ep
+            if (mode == 'from_scratch'):
+                args.experiment_id = -2
+            if (args.embedder_epochs > 0):
+                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+                     
+            TestSVFT_scoring(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init)
+
+    else:
+        import determined as det
+        from determined.experimental import client
+        from determined.pytorch import DataLoader
+
+        info = det.get_cluster_info()
+        #args = AttrDict(info.trial.hparams)
+        args = SimpleNamespace(**info.trial.hparams)
+        args.experiment_id = lora_rank
+        if (embedder_ep != None): 
+                args.embedder_epochs = embedder_ep
+        if (args.embedder_epochs > 0):
+            args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+        if (mode == 'from_scratch'):
+            args.experiment_id = -2
+        print("my lora rank: ", lora_rank)
+        with det.core.init() as context:
+            TestSVFT_scoring(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init)

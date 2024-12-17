@@ -183,7 +183,8 @@ class SVFTLayer(nn.Module):
     
     def compute_score(self, grad_W, i, j):
      
-        assert isinstance(grad_W, torch.Tensor), "grad_W_t must be a torch.Tensor"
+        assert isinstance(grad_W, torch.Tensor), f"grad_W must be a torch.Tensor. But grad_W is {type(grad_W)}"
+
         u_i = self.u[:, i]  # i-th column of u
         v_j = self.v[j, :]  # j-th row of v
 
@@ -225,7 +226,7 @@ class LinearWithSVFT(nn.Module):
                                     fill_orthonormal=fill_orthonormal)
         
         self.m = svd[0].shape[0]
-        self.n = svd[2].shape[2]
+        self.n = svd[2].shape[0]
         self.grad_W = None
 
     def forward(self, x):
