@@ -159,11 +159,7 @@ class SVFTLayer(nn.Module):
         x  = x @ self.get_weights() 
         return x
 
-    def set_s_with_pair(self, pair):
-        pair_tensor = torch.tensor(pair, dtype=torch.long).T  
-        self.s_edge_index = pair_tensor
-        self.s = torch.nn.Parameter(torch.zeros(pair_tensor.shape[1]), requires_grad=True)
-
+    
 
     def get_weights(self):
         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -181,20 +177,7 @@ class SVFTLayer(nn.Module):
     def merge_and_unload(self):
         return self.get_weights().T.contiguous()
     
-    def compute_score(self, grad_W, i, j):
-     
-        assert isinstance(grad_W, torch.Tensor), f"grad_W must be a torch.Tensor. But grad_W is {type(grad_W)}"
-
-        u_i = self.u[:, i]  # i-th column of u
-        v_j = self.v[j, :]  # j-th row of v
-
-    # Compute (∂L/∂W_t)^T · u_i
-        grad_transpose_u_i = grad_W.T @ u_i
-
-    # Compute v_j^T · result
-        score = v_j @ grad_transpose_u_i
-
-        return score*score
+   
     
    
 class LinearWithSVFT(nn.Module):
@@ -225,9 +208,7 @@ class LinearWithSVFT(nn.Module):
                                     rank=rank, 
                                     fill_orthonormal=fill_orthonormal)
         
-        self.m = svd[0].shape[0]
-        self.n = svd[2].shape[0]
-        self.grad_W = None
+        
 
     def forward(self, x):
         if self.bias is not None:
@@ -239,40 +220,10 @@ class LinearWithSVFT(nn.Module):
     def merge_and_unload(self):
         return self.svft_layer.merge_and_unload()
     
-    def get_score(self, i,j):
-        return self.svft_layer.compute_score(self.grad_W,i,j)
+        
+
     
-    def get_sorted_list_score(self):
-        score_list = []
-        for i in range(self.m):
-            for j in range(self.n):
-                score_list.append(self.get_score(i,j))
-
-        sorted_scores = sorted(score_list, reverse=True)
-        return sorted_scores        
-
-    def get_pair_with_thresould(self, thresould):
-        pair_list = []
-        for i in range(self.m):
-            for j in range(self.n):
-                if self.get_score(i,j) >= thresould:
-                    pair_list.append((i,j))
-
-        return pair_list
     
-    def reconstruct_layer_threshould(self,thresould):
-        pair = self.get_pair_with_thresould(thresould)
-        self.svft_layer.set_s_with_pair(pair=pair)
+  
 
-    def register_gradient_hook(self):
-        """
-        Registers a hook to capture the gradient of the effective weights W_t.
-        """
-        def hook_function(grad):
-            # Capture the gradient of the effective weight W_t
-            self.grad_W = grad.clone()
-
-        # Register the hook on the dynamically generated weights
-        W = self.svft_layer.get_weights()  # Dynamically generated effective weight
-        W.retain_grad()  # Ensure gradients are retained for the tensor
-        W.register_hook(hook_function)
+   

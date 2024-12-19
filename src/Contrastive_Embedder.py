@@ -696,7 +696,6 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
     score = 0
     total_losses, times, embedder_stats = [], [], []
     # Train embeder 
-    args.embedder_epochs = 0
     print("Train embedder with ep = ",args.embedder_epochs)
     for ep in range(args.embedder_epochs):   
 
@@ -705,9 +704,16 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
 
         for i in np.random.permutation(num_classes_new):
             feats = []
+            tgt_ys = []
             datanum = 0
-
-            for j, data in enumerate(tgt_train_loaders[i]):
+            shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+            
+            for j, data in enumerate(shuffled_loader):
                 
                 if transform is not None:
                     x, y, z = data
@@ -715,15 +721,23 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
                     x, y = data 
                 
                 x = x.to(args.device)
+                tgt_ys.append(y)
+                #print("shape of input model: ", x.shape)
                 out = tgt_model(x)
+                #print("shape of output model: ", out.shape)
                 feats.append(out)
                 datanum += x.shape[0]
-                
-                if datanum > args.maxsamples: break
-
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                if datanum > 3*args.maxsamples: break
+            #print("shape feats[0] before: ", feats[0].shape)
             feats = torch.cat(feats, 0).mean(1)
+            tgt_ys = torch.cat(tgt_ys, 0).long()
+            #print("shape feats after: ", feats.shape)
             if feats.shape[0] > 1:
-                loss = tgt_class_weights[i] * score_func(feats)
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                ot_loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                cur_contrastive_loss = (1/len(tgt_train_loader))*contrastive_loss(feats,tgt_ys)
+                loss = ot_loss + cur_contrastive_loss
                 loss.backward()
                 total_loss += loss.item()
 
@@ -742,7 +756,7 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
         tgt_model_scheduler.step()
         tgt_model_optimizer.zero_grad()
 
-    del tgt_train_loader, tgt_train_loaders
+    del tgt_train_loader
     torch.cuda.empty_cache()
 
     tgt_model.output_raw = False
