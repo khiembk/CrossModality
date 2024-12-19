@@ -379,27 +379,24 @@ def TestSVFT_scoring(use_determined ,args,info=None, context=None, lora_rank=1, 
     
     print("print model")
     print(model)
-    model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
+    #model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
     embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     train_time = []
-
+    ep_start = 0
     print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
-    print("register hook")
-    for name, params in  model.named_modules():
-       if isinstance(params, LinearWithSVFT):
-           params.register_gradient_hook()
-
     
-    time_start = default_timer()
-    train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
-    train_time_ep = default_timer() -  time_start 
+    for ep in range(100):
+       time_start = default_timer()
+       train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, 190,1e-4,decoder, transform)
+       train_time_ep = default_timer() -  time_start 
+       print("ep: ",ep ,"train loss: ", train_loss, "time_ep: ", train_time_ep)
         
-def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp,OT_loss ,lamda, decoder=None, transform=None):    
 
     model.train()             
     train_loss = 0
     optimizer.zero_grad()
-
+   
     for i, data in enumerate(loader):
 
         if transform is not None:
@@ -425,18 +422,36 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
         if args.dataset[:4] == "DRUG":
             out = out.squeeze(1)
         
-        l = loss(out, y)
-        l.backward()
-        train_loss += l.item()
+        ori_loss = loss(out, y)
+        
+        epsilon = 1/100
+        epsilon = float(epsilon)
+        lasso_regularizer = 0
+        for name, params in  model.named_modules():
+           if isinstance(params, LinearWithSVFT):
+              lasso_regularizer += torch.sum(torch.abs(params.svft_layer.s))/len(params.svft_layer.s)
+        lamda = torch.tensor(lamda, device=args.device) if isinstance(lamda, float) else lamda
+        new_loss = ori_loss + lamda.detach() *(lasso_regularizer -OT_loss*epsilon)
+        optimizer.zero_grad()
+        new_loss.backward()
+        optimizer.step()  
+        model.eval()
+        with torch.no_grad(): 
+            train_loss += ori_loss.item()
+        model.train()
+        if (i + 1) % args.accum == 0:
+            lamda =  lamda + args.optimizer["params"]["lr"]*(lasso_regularizer - OT_loss*epsilon)
+            
+            #optimizer.step()            
+            print("lamda is: ",lamda)
+            print("lasso is:",lasso_regularizer)
+        if args.lr_sched_iter:
+            scheduler.step()
+
+        
         if i >= temp - 1:
             break
-    list_score = []
-    for name, params in  model.named_modules():
-            if isinstance(params, LinearWithSVFT):
-                print(name)
-                list_score.append(params.get_sorted_list_score())
     
-    print("size of list score: ", len(list_score))
     return train_loss / temp            
 
 
