@@ -674,6 +674,7 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
                                     pattern= "banded", 
                                     rank= None, 
                                     fill_orthonormal= False)
+                                    
         
     create_and_replace_modules(tgt_model, get_target_modules_list(tgt_model, lora_target_modules), assign_svft_layer)
     print("Wrapper_func : ")
@@ -763,6 +764,141 @@ def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add
     
     return tgt_model, embedder_stats
 
+########################################################
+def get_score_func(src_train_dataset = None):
+    return partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+
+def get_src_dataset(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    if len(sample_shape) == 4:
+        IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
+            
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+        src_model = src_model.to(args.device).eval()
+            
+        src_feats = []
+        src_ys = []
+        for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            
+            out = src_model(x_)
+            
+            if len(out.shape) > 2:
+                out = out.mean(1)
+
+            src_ys.append(y_.detach().cpu())
+            src_feats.append(out.detach().cpu())
+        src_feats = torch.cat(src_feats, 0)
+        src_ys = torch.cat(src_ys, 0).long()
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+        del src_model    
+
+    else:
+        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
+        
+    
+    return src_train_dataset
+
+def compute_otdd_loss(args, tgt_model, tgt_train_loader, src_dataset, transform= None, num_classes_new = 10):
+    tgt_model.eval()
+    score_func = partial(otdd, src_train_dataset=src_dataset, exact=True)
+    total_loss = 0
+    tgt_model.output_raw = True    
+    for i in np.random.permutation(num_classes_new):
+            feats = []
+            tgt_ys = []
+            datanum = 0
+            shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+            
+            for j, data in enumerate(shuffled_loader):
+                
+                if transform is not None:
+                    x, y, z = data
+                else:
+                    x, y = data 
+                
+                x = x.to(args.device)
+                tgt_ys.append(y)
+                #print("shape of input model: ", x.shape)
+                out = tgt_model(x)
+                #print("shape of output model: ", out.shape)
+                feats.append(out)
+                datanum += x.shape[0]
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                if datanum > 3*args.maxsamples: break
+            #print("shape feats[0] before: ", feats[0].shape)
+            feats = torch.cat(feats, 0).mean(1)
+            tgt_ys = torch.cat(tgt_ys, 0).long()
+            #print("shape feats after: ", feats.shape)
+            if feats.shape[0] > 1:
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                ot_loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                print("len of feats: ", len(feats))
+                print("len of tgt_train_loader: ", len(tgt_train_loader))
+                loss = ot_loss 
+                total_loss += loss.item()
+ 
+    tgt_model.output_raw = False
+    tgt_model.train()
+    return total_loss
+def run_loss_with_backprop(args, tgt_model, tgt_train_loader, src_dataset, scale = 1,transform= None, num_classes_new = 10):
+    
+    score_func = partial(otdd, src_train_dataset=src_dataset, exact=True)
+    total_loss = 0
+    tgt_model.output_raw = True   
+    args, _, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder') 
+    for i in np.random.permutation(num_classes_new):
+            feats = []
+            tgt_ys = []
+            datanum = 0
+            shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+            
+            for j, data in enumerate(shuffled_loader):
+                
+                if transform is not None:
+                    x, y, z = data
+                else:
+                    x, y = data 
+                
+                x = x.to(args.device)
+                tgt_ys.append(y)
+                #print("shape of input model: ", x.shape)
+                out = tgt_model(x)
+                #print("shape of output model: ", out.shape)
+                feats.append(out)
+                datanum += x.shape[0]
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                if datanum > 3*args.maxsamples: break
+            #print("shape feats[0] before: ", feats[0].shape)
+            feats = torch.cat(feats, 0).mean(1)
+            tgt_ys = torch.cat(tgt_ys, 0).long()
+            #print("shape feats after: ", feats.shape)
+            if feats.shape[0] > 1:
+                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+                ot_loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
+                loss = ot_loss 
+                total_loss += loss.item()
+                loss = scale*loss
+                loss.backward()
+    
+    tgt_model_optimizer.step()
+    tgt_model_scheduler.step()
+    tgt_model_optimizer.zero_grad()
+    tgt_model.output_raw = False
+    return total_loss    
 #################################################
 def infer_labels(loader, k = 10):
     from sklearn.cluster import k_means, MiniBatchKMeans

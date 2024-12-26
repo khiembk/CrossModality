@@ -16,8 +16,8 @@ from SVFT import LinearWithSVFT, create_and_replace_modules , get_target_modules
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 from task_configs import set_decoder_trainable
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
-from Contrastive_Embedder import get_SVFT_model
-from main import load_state
+from Contrastive_Embedder import get_SVFT_model, get_score_func,compute_otdd_loss,get_src_dataset, run_loss_with_backprop
+from main import load_state, evaluate
 from types import SimpleNamespace
 
 class wrapper2D(torch.nn.Module):
@@ -381,16 +381,26 @@ def TestSVFT_scoring(use_determined ,args,info=None, context=None, lora_rank=1, 
     print(model)
     #model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
     embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
-    train_time = []
+    train_losses = []
+    train_score = []
     ep_start = 0
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
     print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
+    src_dataset = get_src_dataset(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context)
     
     for ep in range(100):
-       time_start = default_timer()
-       train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, 190,1e-4,decoder, transform)
-       train_time_ep = default_timer() -  time_start 
-       print("ep: ",ep ,"train loss: ", train_loss, "time_ep: ", train_time_ep)
-        
+        time_start = default_timer()
+        OT_loss = compute_otdd_loss(args, model,train_loader, src_dataset,transform)
+        print("train with OT loss is",OT_loss)
+        train_loss, scale = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, OT_loss,5e-6,decoder, transform)
+        OT_loss = run_loss_with_backprop(args, model,train_loader, src_dataset,scale,transform)
+        time_end = default_timer()
+        val_loss, val_score = evaluate(context, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
+        train_losses.append(train_loss)
+        train_score.append(val_score)
+
+        print("[train", "full" if ep >= args.predictor_epochs else "predictor", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (time_end-time_start), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
+
 def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp,OT_loss ,lamda, decoder=None, transform=None):    
 
     model.train()             
@@ -424,14 +434,79 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
         
         ori_loss = loss(out, y)
         
-        epsilon = 1/100
+        epsilon = 1.6/1000
         epsilon = float(epsilon)
         lasso_regularizer = 0
         for name, params in  model.named_modules():
            if isinstance(params, LinearWithSVFT):
               lasso_regularizer += torch.sum(torch.abs(params.svft_layer.s))/len(params.svft_layer.s)
         lamda = torch.tensor(lamda, device=args.device) if isinstance(lamda, float) else lamda
-        new_loss = ori_loss + lamda.detach() *(lasso_regularizer -OT_loss*epsilon)
+        new_loss = ori_loss + (len(x)/len(loader))*lamda.detach() *(lasso_regularizer -OT_loss*epsilon)
+        optimizer.zero_grad()
+        new_loss.backward()
+        optimizer.step()  
+        model.eval()
+        with torch.no_grad(): 
+            train_loss += ori_loss.item()
+        model.train()
+        # if (i + 1) % args.accum == 0:
+        #     lamda =  lamda + (1e-3)*args.optimizer["params"]["lr"]*(lasso_regularizer - OT_loss*epsilon)
+            
+        #     #optimizer.step()            
+            
+        if args.lr_sched_iter:
+            scheduler.step()
+
+        
+        if i >= temp - 1:
+            break
+    print("lamda is: ",lamda)
+    print("lasso is:",lasso_regularizer)
+    scale = -lamda.detach()*epsilon   
+    return train_loss / temp, scale        
+
+def train_one_epoch_withOT(context, args, model, optimizer, scheduler, loader, loss, temp ,lamda, decoder=None, transform=None):    
+    OT_loss = 0
+    
+    model.train()             
+    train_loss = 0
+    optimizer.zero_grad()
+   
+    for i, data in enumerate(loader):
+
+        if transform is not None:
+            x, y, z = data
+            z = z.to(args.device)
+        else:
+            x, y = data 
+        
+        x, y = x.to(args.device), y.to(args.device)
+        out = model(x)
+
+        if isinstance(out, dict):
+            out = out['out']
+
+        if decoder is not None:
+            out = decoder.decode(out).view(x.shape[0], -1)
+            y = decoder.decode(y).view(x.shape[0], -1)
+
+        if transform is not None:
+            out = transform(out, z)
+            y = transform(y, z)
+
+        if args.dataset[:4] == "DRUG":
+            out = out.squeeze(1)
+        
+        ori_loss = loss(out, y)
+        
+        epsilon = 2.4/100
+        epsilon = float(epsilon)
+        lasso_regularizer = 0
+        for name, params in  model.named_modules():
+           if isinstance(params, LinearWithSVFT):
+              lasso_regularizer += torch.sum(torch.abs(params.svft_layer.s))/len(params.svft_layer.s)
+        lamda = torch.tensor(lamda, device=args.device) if isinstance(lamda, float) else lamda
+        new_loss = ori_loss + (len(x)/len(loader))*lamda.detach() *(lasso_regularizer -OT_loss*epsilon)
         optimizer.zero_grad()
         new_loss.backward()
         optimizer.step()  
@@ -440,18 +515,18 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
             train_loss += ori_loss.item()
         model.train()
         if (i + 1) % args.accum == 0:
-            lamda =  lamda + args.optimizer["params"]["lr"]*(lasso_regularizer - OT_loss*epsilon)
+            lamda =  lamda + (1e-3)*args.optimizer["params"]["lr"]*(lasso_regularizer - OT_loss*epsilon)
             
             #optimizer.step()            
-            print("lamda is: ",lamda)
-            print("lasso is:",lasso_regularizer)
+            
         if args.lr_sched_iter:
             scheduler.step()
 
         
         if i >= temp - 1:
             break
-    
+    print("lamda is: ",lamda)
+    print("lasso is:",lasso_regularizer)
     return train_loss / temp            
 
 
