@@ -802,9 +802,10 @@ def get_src_dataset(args, root, sample_shape, num_classes, loss,lora_rank =1 ,ad
     
     return src_train_dataset
 
-def compute_otdd_loss(args, tgt_model, tgt_train_loader, src_dataset, transform= None, num_classes_new = 10):
+def compute_otdd_loss(args, tgt_model, tgt_train_loader, src_dataset, transform= None, num_classes_new = 1):
     tgt_model.eval()
     score_func = partial(otdd, src_train_dataset=src_dataset, exact=True)
+    print("len of src dataset: ", len(src_dataset))
     total_loss = 0
     tgt_model.output_raw = True    
     for i in np.random.permutation(num_classes_new):
@@ -833,7 +834,7 @@ def compute_otdd_loss(args, tgt_model, tgt_train_loader, src_dataset, transform=
                 feats.append(out)
                 datanum += x.shape[0]
                 #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                if datanum > 3*args.maxsamples: break
+                #if datanum > 3*args.maxsamples: break
             #print("shape feats[0] before: ", feats[0].shape)
             feats = torch.cat(feats, 0).mean(1)
             tgt_ys = torch.cat(tgt_ys, 0).long()
@@ -849,7 +850,7 @@ def compute_otdd_loss(args, tgt_model, tgt_train_loader, src_dataset, transform=
     tgt_model.output_raw = False
     tgt_model.train()
     return total_loss
-def run_loss_with_backprop(args, tgt_model, tgt_train_loader, src_dataset, scale = 1,transform= None, num_classes_new = 10):
+def run_loss_with_backprop(args, tgt_model, tgt_train_loader, src_dataset, scale = 1,transform= None, num_classes_new = 1):
     
     score_func = partial(otdd, src_train_dataset=src_dataset, exact=True)
     total_loss = 0
@@ -881,7 +882,7 @@ def run_loss_with_backprop(args, tgt_model, tgt_train_loader, src_dataset, scale
                 feats.append(out)
                 datanum += x.shape[0]
                 #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                if datanum > 3*args.maxsamples: break
+                #if datanum > 3*args.maxsamples: break
             #print("shape feats[0] before: ", feats[0].shape)
             feats = torch.cat(feats, 0).mean(1)
             tgt_ys = torch.cat(tgt_ys, 0).long()
