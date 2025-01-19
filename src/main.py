@@ -45,7 +45,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
 
-    log_file = f"lora{args.experiment_id}_{args.dataset}_{args.finetune_method}.log"
+    log_file = f"lora_p={p}_{args.dataset}_{args.finetune_method}.log"
     if (log_folder is not None):
         log_dir = os.path.join(log_folder)
         os.makedirs(log_dir, exist_ok= True)
