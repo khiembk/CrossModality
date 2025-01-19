@@ -221,20 +221,13 @@ class wrapper2DLORA(torch.nn.Module):
         return self.predictor(x)
 
 class wrapper1DLORA(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, lora_rank = 1 ,use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True):
+    def __init__(self, input_shape, output_shape, lora_rank = 1 ,use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False, warm_init = True, p= 4):
         super().__init__()
 
         self.dense = False
         self.output_raw = True
         self.weight = weight
         self.output_shape = output_shape
-        lora_config = LoraConfig(
-           r= lora_rank,  # Rank of the LoRA matrices
-           lora_alpha=32,  # Scaling factor
-           target_modules=["query", "value", "key", "projection", "dense","reduction"],  # Apply LoRA on specific modules
-           lora_dropout= 0,  # Dropout for LoRA layers  # Apply LoRA on specific modules
-           
-         )
         if isinstance(output_shape, tuple):
             self.dense = True
 
@@ -280,17 +273,63 @@ class wrapper1DLORA(torch.nn.Module):
               
         #LORA
         print("before call lora: ",count_params(self.model))
-        self.model  = get_peft_model(self.model, lora_config)
+        self.model  = self.apply_lora_rank_Increase_depend(self.model, p = p)
         print("after call lora: ",count_params(self.model))    
         if weight != 'swin' :
             print("call if")
             for name, param in self.model.named_parameters():
-                if name in self.model.base_model.model.pooler.named_parameters() :
+                if name in self.model.base_model.pooler.named_parameters() :
                    print("set trainable for:", name)
                    param.requires_grad = True
         
 
+    def apply_lora_rank_Increase_depend(self, model , p=4):
+       transformer_blocks = model.encoder.layer
+       for layer in transformer_blocks:
+            # Process attention module
+            attention = layer.attention
+            
+            cur_shape = attention.self.query.weight.shape
+            current_rank = int((cur_shape[0] * cur_shape[1]) / (cur_shape[0] + cur_shape[1]))
+            current_rank = int(current_rank / (2**p))
+            cur_lora_config = LoraConfig(
+                        r=current_rank,  # Rank of the LoRA matrices
+                        lora_alpha=32,  # Scaling factor
+                        target_modules=["query", "value", "key", "projection", "dense" , "reduction"],  # Apply LoRA on this sublayer
+                        lora_dropout=0,
+                    )
+            attention = get_peft_model(attention, cur_lora_config)
 
+            
+            # Process feed-forward intermediate dense layer
+            intermediate = layer.intermediate
+            print(f"Processing intermediate.dense with shape: {intermediate.dense.weight.shape}")
+            cur_shape = intermediate.dense.weight.shape
+            current_rank = int((cur_shape[0] * cur_shape[1]) / (cur_shape[0] + cur_shape[1]))
+            current_rank = int(current_rank / (2**p))
+            cur_lora_config = LoraConfig(
+                r=current_rank,  # Rank of the LoRA matrices
+                lora_alpha=32,  # Scaling factor
+                target_modules=["dense"],  # Apply LoRA on this layer
+                lora_dropout=0,
+            )
+            layer.intermediate = get_peft_model(intermediate, cur_lora_config)
+
+            # Process feed-forward output dense layer
+            output = layer.output
+            print(f"Processing output.dense with shape: {output.dense.weight.shape}")
+            cur_shape = output.dense.weight.shape
+            current_rank = int((cur_shape[0] * cur_shape[1]) / (cur_shape[0] + cur_shape[1]))
+            current_rank = int(current_rank / (2**p))
+            cur_lora_config = LoraConfig(
+                r=current_rank,  # Rank of the LoRA matrices
+                lora_alpha=32,  # Scaling factor
+                target_modules=["dense"],  # Apply LoRA on this layer
+                lora_dropout=0,
+            )
+            layer.output = get_peft_model(output, cur_lora_config)
+       return model
+       
     def forward(self, x):
         if self.weight == 'swin':
             if self.output_raw:
@@ -738,7 +777,7 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     
     if lora_rank is not None:
         wrapper_func = wrapper1DLORA if len(sample_shape) == 3 else wrapper2DLORA
-        tgt_model = wrapper_func(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)   
+        tgt_model = wrapper_func(sample_shape, num_classes,lora_rank= lora_rank ,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out, p= p)   
 
     else:    
         wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
