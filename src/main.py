@@ -212,7 +212,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
     train_loss = 0
     optimizer.zero_grad()
 
-    for i, data in enumerate(loader):
+    for i, data in enumerate(tqdm(loader, desc="Training Progress", leave=True)):
 
         if transform is not None:
             x, y, z = data
