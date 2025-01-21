@@ -49,7 +49,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     if (log_folder is not None):
         log_dir = os.path.join(log_folder)
         os.makedirs(log_dir, exist_ok= True)
-        log_file = os.path.join(log_dir, f"lora{args.experiment_id}_{args.dataset}_{args.finetune_method}.log")
+        log_file = os.path.join(log_dir, f"lora_p={p}_{args.dataset}_{args.finetune_method}.log")
 
     logging.basicConfig(filename= log_file,
                     level=logging.INFO,  # Set logging level
