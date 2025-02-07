@@ -3,6 +3,7 @@ CURPATH=`pwd`
 # OTDD 
 pip install peft
 pip install gdown
+pip install timm
 cd otdd
 pip install -r requirements.txt
 pip install .
