@@ -5,3 +5,19 @@ Summary: Optimal Transport Dataset Distance
 Author: David Alvarez-Melis & Nicolo Fusi
 License: MIT
 License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: matplotlib
+Requires-Dist: tqdm
+Requires-Dist: pot
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: torchtext
+Requires-Dist: attrdict
+Requires-Dist: opentsne
+Requires-Dist: seaborn
+Requires-Dist: scikit-learn
+Requires-Dist: pandas
+Requires-Dist: geomloss
+Requires-Dist: munkres
+Requires-Dist: adjustText
