@@ -18,8 +18,8 @@ import torch
 import argparse
 from types import SimpleNamespace
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
-from SVFT import LinearWithSVFT, create_and_replace_modules , get_target_modules_list
 # Alignment Loss
+
 def align_loss(batch_features, labels, alpha=2):
     """
     Alignment loss for batch features and labels.
@@ -872,155 +872,7 @@ def get_Contrastgt_model(args, root, sample_shape, num_classes, loss,lora_rank =
     tgt_model.output_raw = False
     
     return tgt_model, embedder_stats
-############################################### Test for SVFT
-def get_SVFT_model(args, root, sample_shape, num_classes, loss,lora_rank =1 ,add_loss=False, use_determined=False, context=None, opid=0, mode = 'lora', logging = None, warm_init = True):
-    
-    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
-    if len(sample_shape) == 4:
-        IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
-            
-        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
-        src_model = src_model.to(args.device).eval()
-            
-        src_feats = []
-        src_ys = []
-        for i, data in enumerate(src_train_loader):
-            x_, y_ = data 
-            x_ = x_.to(args.device)
-            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
-            
-            out = src_model(x_)
-            
-            if len(out.shape) > 2:
-                out = out.mean(1)
 
-            src_ys.append(y_.detach().cpu())
-            src_feats.append(out.detach().cpu())
-        src_feats = torch.cat(src_feats, 0)
-        src_ys = torch.cat(src_ys, 0).long()
-        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
-        del src_model    
-
-    else:
-        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
-        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-        
-    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
-    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-        
-    if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
-    else:
-        num_classes_new = num_classes
-
-    print("src feat shape", src_feats.shape, src_ys.shape, "num classes", num_classes_new) 
-
-    tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
-
-    
-    
-    wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-    tgt_model = wrapper_func(sample_shape, num_classes,weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
-    
-    
-    tgt_model = tgt_model.to(args.device).train()
-    lora_target_modules = ["query", "value", "key","dense","reduction" ]
-    print(f"Target Modules: {lora_target_modules}")
-    off_diag = 8
-    assign_svft_layer = partial(LinearWithSVFT, 
-                                    off_diag=off_diag, 
-                                    pattern= "banded", 
-                                    rank= None, 
-                                    fill_orthonormal= False)
-                                    
-        
-    create_and_replace_modules(tgt_model, get_target_modules_list(tgt_model, lora_target_modules), assign_svft_layer)
-    print("Wrapper_func : ")
-    print("all param count:", count_params(tgt_model))
-    print("trainabel params count :  ",count_trainable_params(tgt_model))
-    args, _, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
-    tgt_model_optimizer.zero_grad()
-    print("get_optimizer : ")
-    print("all param count:", count_params(tgt_model))
-    print("trainabel params count :  ",count_trainable_params(tgt_model))
-    if args.objective == 'otdd-exact':
-        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
-    elif args.objective == 'otdd-gaussian':
-        score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=False)
-    elif args.objective == 'l2':
-        score_func = partial(l2, src_train_dataset=src_train_dataset)
-    else:
-        score_func = MMD_loss(src_data=src_feats, maxsamples=args.maxsamples)
-    
-    score = 0
-    total_losses, times, embedder_stats = [], [], []
-    # Train embeder 
-    print("Train embedder with ep = ",args.embedder_epochs)
-    for ep in range(args.embedder_epochs):   
-
-        total_loss = 0    
-        time_start = default_timer()
-
-        for i in np.random.permutation(num_classes_new):
-            feats = []
-            tgt_ys = []
-            datanum = 0
-            shuffled_loader = torch.utils.data.DataLoader(
-                tgt_train_loader.dataset,
-                batch_size=tgt_train_loader.batch_size,
-                shuffle=True,  # Enable shuffling to permute the order
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory)
-            
-            for j, data in enumerate(shuffled_loader):
-                
-                if transform is not None:
-                    x, y, z = data
-                else:
-                    x, y = data 
-                
-                x = x.to(args.device)
-                tgt_ys.append(y)
-                #print("shape of input model: ", x.shape)
-                out = tgt_model(x)
-                #print("shape of output model: ", out.shape)
-                feats.append(out)
-                datanum += x.shape[0]
-                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                if datanum > 3*args.maxsamples: break
-            #print("shape feats[0] before: ", feats[0].shape)
-            feats = torch.cat(feats, 0).mean(1)
-            tgt_ys = torch.cat(tgt_ys, 0).long()
-            #print("shape feats after: ", feats.shape)
-            if feats.shape[0] > 1:
-                #print(f"CUDA memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
-                ot_loss =  (len(feats)/len(tgt_train_loader))*score_func(feats)
-                cur_contrastive_loss = (1/len(tgt_train_loader))*contrastive_loss(feats,tgt_ys)
-                loss = ot_loss + cur_contrastive_loss
-                loss.backward()
-                total_loss += loss.item()
-
-        time_end = default_timer()  
-        times.append(time_end - time_start) 
-
-        total_losses.append(total_loss)
-        # embedder_stats is loss and time
-        embedder_stats.append([total_losses[-1], times[-1]])
-        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
-        if (logging is not None):
-            log_message = "[train embedder %d %.6f] time elapsed: %.4f\ttotal loss: %.4f" % (
-           ep, tgt_model_optimizer.param_groups[0]['lr'], times[-1], total_losses[-1] )
-            logging.info(log_message)
-        tgt_model_optimizer.step()
-        tgt_model_scheduler.step()
-        tgt_model_optimizer.zero_grad()
-
-    del tgt_train_loader
-    torch.cuda.empty_cache()
-
-    tgt_model.output_raw = False
-    
-    return tgt_model, embedder_stats
 
 ########################################################
 def get_score_func(src_train_dataset = None):
