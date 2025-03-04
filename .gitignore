@@ -2,7 +2,6 @@ src/datasets/
 src/results/
 src/otdd/
 src/otdd/otdd.egg-info/PKG-INFO
-src/id_rsa_khiem_03
-src/id_rsa_khiem_03.pub
 src/lora_p=4_DARCY-FLOW-5_all.log
 src/__pycache__/
+src/Log/
