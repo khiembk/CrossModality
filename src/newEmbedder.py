@@ -7,10 +7,10 @@ from timeit import default_timer
 from functools import partial
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 from otdd.pytorch.distance import DatasetDistance, FeatureCost
-
+import torch.optim as optim
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
-import copy
+import copy, tqdm
 
 def total_variance_distance(p, q):
     """
@@ -67,18 +67,13 @@ class wrapper2D(torch.nn.Module):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-
-        if weight == 'tiny':
-            arch_name = "microsoft/swin-tiny-patch4-window7-224"
-            embed_dim = 96
-            output_dim = 768
-            img_size = 224
-        elif weight == 'base':
-            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
-            embed_dim = 128
-            output_dim = 1024
-            img_size = 224
-            patch_size = 4
+        print("cur_classification: ", self.classification)
+        
+        arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+        embed_dim = 128
+        output_dim = 1024
+        img_size = 224
+        patch_size = 4
 
         if self.classification:
             modelclass = SwinForImageClassification
@@ -287,8 +282,50 @@ class Embeddings1D(nn.Module):
             return x, self.patched_dimensions
 
 
-
-####################################################
+#########################################################################################################################################################################
+def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
+    sample_shape = (3, IMG_SIZE, IMG_SIZE)
+    print("sample shape: ", sample_shape)        
+    src_model = wrapper2D(sample_shape, 10, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+    src_model.output_raw = False
+    # Define optimizer
+    optimizer = optim.AdamW(
+        src_model.parameters(),
+        lr=args.lr if hasattr(args, 'lr') else 1e-4,
+        weight_decay=0.05
+    )
+    
+    # Optional: Learning rate scheduler
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=args.embedder_epochs
+    )
+    criterion = nn.CrossEntropyLoss(
+        label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
+    )
+    src_model.train()
+    for epoch in range(10):
+        running_loss = 0.0 
+        
+        for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            optimizer.zero_grad()
+            out = src_model(x_)
+            loss = criterion(out, y_)
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+            
+        
+        scheduler.step()
+        print(f'Epoch [{epoch+1}/{10}], '
+              f'Average Loss: {running_loss/len(src_train_loader):.4f}')  
+          
+#########################################################################################################################################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
     
