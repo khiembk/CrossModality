@@ -26,7 +26,7 @@ def set_seed(seed: int = 42) -> None:
     os.environ["PYTHONHASHSEED"] = str(seed)
     print(f"Random seed set as {seed}")
 
-def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora', save_per_ep = 1, DatasetRoot= None, log_folder = None, warm_init = True, p= 4):
+def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None):
     set_seed()
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
@@ -42,11 +42,11 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
 
-    log_file = f"lora_p={p}_{args.dataset}_{args.finetune_method}.log"
+    log_file = f"{args.dataset}_{args.finetune_method}.log"
     if (log_folder is not None):
         log_dir = os.path.join(log_folder)
         os.makedirs(log_dir, exist_ok= True)
-        log_file = os.path.join(log_dir, f"lora_p={p}_{args.dataset}_{args.finetune_method}.log")
+        log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
 
     logging.basicConfig(filename= log_file,
                     level=logging.INFO,  # Set logging level
@@ -146,9 +146,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
             "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
              val_loss, val_score,compare_metrics(train_score))
             if use_determined :
-                if ep % save_per_ep ==0 :
-                   print("save state at epoch ep: ", ep)
-                   id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
+            
                 try:
                     context.train.report_training_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"train loss": train_loss, "epoch time": train_time_ep})
                     context.train.report_validation_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"val score": val_score})
@@ -156,7 +154,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
                     pass
                     
             if compare_metrics(train_score) == val_score:
-                if not use_determined and ep % save_per_ep == 0:
+                if not use_determined :
                     print("save state at epoch ep: ", ep)
                     id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 id_best = id_current
@@ -182,8 +180,7 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
 
             print("[test best-validated]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
             logging.info("[test best-validated]\ttime elapsed: %.4f\ttest loss: %.4f\ttest score: %.4f" % (test_time_end - test_time_start, test_loss, test_score))
-            if (mode == "ada"):
-                logging.info(f"Affter fix Structure:\n{model}")
+            
 
             if use_determined:
                 checkpoint_metadata = {"steps_completed": (ep + 1) * n_train, "epochs": ep}
@@ -246,7 +243,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
             scheduler.step()
 
         train_loss += l.item()
-        #print(f'Batch [{i+1}/{len(loader)}], Loss: {l.item():.4f}')
+        
         if i >= temp - 1:
             break
 
