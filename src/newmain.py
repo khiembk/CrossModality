@@ -1,7 +1,6 @@
 import os
 import argparse
 import random
-from peft import LoraConfig, get_peft_model
 import logging
 import numpy as np
 import torch
@@ -59,13 +58,12 @@ def main(use_determined ,args,info=None, context=None, lora_rank=1, mode = 'lora
         cudnn.benchmark = True
     
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
-    # embedder trained or not
+    
     if load_embedder(use_determined, args):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
-    if mode != 'lora':
-        lora_rank = None
-    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss,lora_rank ,False, use_determined, context, mode = mode, logging= logging)
+    
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss, False, use_determined, context, logging= logging)
     print("first call model : ")
     print("all param count:", count_params(model))
     print("trainabel params count :  ",count_trainable_params(model))    
@@ -433,57 +431,25 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
-    parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
-    parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
-    parser.add_argument('--p', type= int, default= 4, help='lora_rank= r/2^p')
+    
     args = parser.parse_args()
-    lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
-    save_per_ep = args.save_per_ep
-    mode = args.mode 
-    p = args.p
     root_dataset = args.root_dataset
     log_folder = args.log_folder
-    warm_init = args.warm_init
-    print("current mode: ", mode)
     if args.config is not None:     
         import yaml
-
         with open(args.config, 'r') as stream:
-            #args = AttrDict(yaml.safe_load(stream)['hyperparameters']
-            #with open('configs/cifar100.yaml', 'r') as stream:
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
-            args.experiment_id = lora_rank
+            
             if (embedder_ep != None): 
                 args.embedder_epochs = embedder_ep
-            if (mode == 'from_scratch'):
-                args.experiment_id = -2
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
                      
-            main(False, args, lora_rank= lora_rank, mode= mode, save_per_ep= save_per_ep, DatasetRoot= root_dataset, log_folder= log_folder, warm_init= warm_init, p= p)
+            main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
 
-    else:
-        import determined as det
-        from determined.experimental import client
-        from determined.pytorch import DataLoader
-
-        info = det.get_cluster_info()
-        #args = AttrDict(info.trial.hparams)
-        args = SimpleNamespace(**info.trial.hparams)
-        args.experiment_id = lora_rank
-        if (embedder_ep != None): 
-                args.embedder_epochs = embedder_ep
-        if (args.embedder_epochs > 0):
-            args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-        if (mode == 'from_scratch'):
-            args.experiment_id = -2
-        print("my lora rank: ", lora_rank)
-        with det.core.init() as context:
-            main(True,args ,info, context, lora_rank= lora_rank, mode = mode, save_per_ep= save_per_ep,DatasetRoot=root_dataset, log_folder= log_folder, warm_init= warm_init)
+    
