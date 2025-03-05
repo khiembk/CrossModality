@@ -283,7 +283,13 @@ class Embeddings1D(nn.Module):
 
 
 #########################################################################################################################################################################
-def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
+def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
+    ###################################### train predictor 
+    """
+    get train model and feature: 
+       + get trained predictor but embedder is convolution 
+    """
+    print("get src_model and src_feature...")
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
     num_classes = 10
@@ -300,19 +306,20 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
     # Optional: Learning rate scheduler
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=args.embedder_epochs
+        T_max=args.embedder_epochs/2
     )
     criterion = nn.CrossEntropyLoss(
         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
     )
     src_model.train()
     set_grad_state(src_model.predictor, True)
-    print("trainabel params count :  ",count_trainable_params(src_model))  
+    print("trainabel params count :  ",count_trainable_params(src_model))
+    print("trainable params: ")  
     for name, param in src_model.named_parameters():
       if param.requires_grad:
          print(name)
-         
-    for epoch in range(60):
+    #print("model architechture: ", src_model)      
+    for epoch in range(args.embedder_epochs//2):
         running_loss = 0.0 
         correct = 0  
         total = 0
@@ -333,10 +340,141 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
         
         scheduler.step()
         accuracy = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{60}], '
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs//2}], '
               f'Average Loss: {running_loss/len(src_train_loader):.4f}'
-              f'Accuracy: {accuracy:.2f}%')  
-          
+              f' Accuracy: {accuracy:.2f}%')  
+        
+        
+    """
+    #### extract body model and predictor from model   
+    predictor = src_model.predictor
+    body_model = src_model.model.swin  # Swin Transformer backbone
+    embeddings = src_model.model.swin.embeddings
+    """
+    ##### set output_raw 
+    src_model.output_raw = True
+    src_model.eval()
+    ##### get source feature from cifar10
+    src_feats = []
+    src_ys = []
+    for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            out = src_model(x_)
+            if len(out.shape) > 2:
+                out = out.mean(1)
+
+            src_ys.append(y_.detach().cpu())
+            src_feats.append(out.detach().cpu())
+            
+    src_feats = torch.cat(src_feats, 0)
+    src_ys = torch.cat(src_ys, 0).long()
+    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+    return src_model, src_train_dataset
+    
+
+##############################################################################################################################################
+def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
+    """
+    Embedder training using optimal transport to minimize source and target feture distribution: 
+      + Early implement using OTDD
+      + Feature work using Total Variance distance 
+      + return tgt_model
+    """ 
+    
+    print("feature matching....")
+    ##### check tgt_model
+    set_grad_state(tgt_model.embedder, True)
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    print("trainable params: ")  
+    for name, param in tgt_model.named_parameters():
+      if param.requires_grad:
+         print(name)
+    ### load tgt_loader 
+    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+    #### fix fowrad flow and set trainable to tgt_model
+    tgt_model.output_raw = True
+    tgt_model = tgt_model.to(args.device).train()
+    
+    #### init score function 
+    score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+    ##### get optimizer
+    args, tgt_model, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
+    tgt_model_optimizer.zero_grad()
+    ##### train embedder with score_func
+     
+    total_losses, times, embedder_stats = [], [], []
+    print("begin feature matching...")
+    for ep in range(args.embedder_epochs):   
+
+        total_loss = 0    
+        time_start = default_timer()
+        feats = []
+        datanum = 0
+        ##### shuffle dataset 
+        
+        shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+        ##### begin training
+             
+        for j, data in enumerate(shuffled_loader):
+            
+            if transform is not None:
+                x, y, z = data
+            else:
+                x, y = data 
+                
+            x = x.to(args.device)
+            out = tgt_model(x)
+            feats.append(out)
+            datanum += x.shape[0]
+                
+            if datanum > args.maxsamples:
+                  break
+
+            feats = torch.cat(feats, 0).mean(1)
+            if feats.shape[0] > 1:
+                loss = (len(feats)/len(tgt_train_loader))*score_func(feats)
+                loss.backward()
+                total_loss += loss.item()
+
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
+
+        total_losses.append(total_loss)
+        embedder_stats.append([total_losses[-1], times[-1]])
+        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
+
+        tgt_model_optimizer.step()
+        tgt_model_scheduler.step()
+        tgt_model_optimizer.zero_grad()
+
+    del tgt_train_loader 
+    torch.cuda.empty_cache()
+
+    tgt_model.output_raw = False
+
+    return tgt_model
+###############################################################################################################################################    
+def label_matching_src_model(args, src_model, tgt_embedder):
+    """
+    Label matching by minimize -H(Y_t| Y_s): 
+      + Generate dummy label for target data.
+      + Compute emperical P(Y_t| Y_s).
+      + Minimize -H(Y_t| Y_s)
+      + Return src_model without predictor
+    """  
+    print("label matching with src model...")
+    ##### check src_model
+    
+    
+    return src_model        
 #########################################################################################################################################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
