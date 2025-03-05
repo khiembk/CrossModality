@@ -370,7 +370,11 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
             
     src_feats = torch.cat(src_feats, 0)
     src_ys = torch.cat(src_ys, 0).long()
-    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
+    ##### clearn cache
+    del src_ys, src_feats, src_train_loader
+    torch.cuda.empty_cache()
+    ##### return src_model and src_train_dataset         
     return src_model, src_train_dataset
     
 
@@ -391,7 +395,8 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
     for name, param in tgt_model.named_parameters():
       if param.requires_grad:
          print(name)
-    ### load tgt_loader 
+    ### load tgt_loader
+    print("load tgt dataset...") 
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
     #### fix fowrad flow and set trainable to tgt_model
@@ -438,11 +443,11 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
             if datanum > args.maxsamples:
                   break
 
-            feats = torch.cat(feats, 0).mean(1)
-            if feats.shape[0] > 1:
-                loss = (len(feats)/len(tgt_train_loader))*score_func(feats)
-                loss.backward()
-                total_loss += loss.item()
+        feats = torch.cat(feats, 0).mean(1)
+        if feats.shape[0] > 1:
+            loss = (len(feats)/len(tgt_train_loader))*score_func(feats)
+            loss.backward()
+            total_loss += loss.item()
 
         time_end = default_timer()  
         times.append(time_end - time_start) 
@@ -462,7 +467,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
     return tgt_model
 ###############################################################################################################################################    
-def label_matching_src_model(args, src_model, tgt_embedder):
+def label_matching_src_model(args,root, src_model, tgt_embedder):
     """
     Label matching by minimize -H(Y_t| Y_s): 
       + Generate dummy label for target data.
@@ -472,8 +477,23 @@ def label_matching_src_model(args, src_model, tgt_embedder):
     """  
     print("label matching with src model...")
     ##### check src_model
-    
-    
+    src_model.emdder = tgt_embedder
+    set_grad_state(src_model.embedder, True)
+    set_grad_state(src_model.model, True)
+    print("trainabel params count :  ",count_trainable_params(src_model))
+    print("trainable params: ")
+    src_model.output_raw = False
+    src_model = src_model.to(args.device).train()  
+    for name, param in src_model.named_parameters():
+      if param.requires_grad:
+         print(name)
+         
+    ##### load tgt dataset
+    print("load tgt dataset...")
+    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+          
+    ####### train with dummy label 
     return src_model        
 #########################################################################################################################################################################
 
