@@ -477,7 +477,8 @@ def label_matching_src_model(args,root, src_model, tgt_embedder):
     """  
     print("label matching with src model...")
     ##### check src_model
-    src_model.emdder = tgt_embedder
+    src_model.embedder = tgt_embedder
+    src_model.model.swin.embeddings = src_model.embedder
     set_grad_state(src_model.embedder, True)
     set_grad_state(src_model.model, True)
     print("trainabel params count :  ",count_trainable_params(src_model))
@@ -494,6 +495,41 @@ def label_matching_src_model(args,root, src_model, tgt_embedder):
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
           
     ####### train with dummy label 
+    print("Train with dummy label...")
+    label_matching_ep = 5
+    total_losses, times = [], []
+    for ep in range(label_matching_ep):
+        total_loss = 0    
+        time_start = default_timer()
+        feats = []
+        datanum = 0
+        ##### shuffle dataset 
+        
+        shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
+        ##### begin training
+             
+        for j, data in enumerate(shuffled_loader):
+            
+            if transform is not None:
+                x, y, z = data
+            else:
+                x, y = data 
+                
+            x = x.to(args.device)
+            # out = src_model(x)
+            # feats.append(out)
+            # datanum += x.shape[0]
+                
+            # if datanum > args.maxsamples:
+            #       break
+
+        
+        
     return src_model        
 #########################################################################################################################################################################
 

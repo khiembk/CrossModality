@@ -11,7 +11,7 @@ import yaml
 from types import SimpleNamespace
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
 from utils import count_params, count_trainable_params, calculate_stats
-from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model
+from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,label_matching_src_model
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
@@ -75,7 +75,8 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     ######### feature matching for tgt_model
     tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
     del src_train_dataset
-    
+    ######### label matching for src_model
+    src_model = label_matching_src_model(args,root, src_model, tgt_model.embedder)
 
   
 
