@@ -286,9 +286,9 @@ class Embeddings1D(nn.Module):
 def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
-    sample_shape = (3, IMG_SIZE, IMG_SIZE)
-    print("sample shape: ", sample_shape)        
-    src_model = wrapper2D(sample_shape, 10, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+    num_classes = 10
+    print("num class: ", num_classes)    
+    src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
     src_model.output_raw = False
     # Define optimizer
     optimizer = optim.AdamW(
@@ -296,7 +296,7 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
         lr=args.lr if hasattr(args, 'lr') else 1e-4,
         weight_decay=0.05
     )
-    
+    src_model = src_model.to(args.device)
     # Optional: Learning rate scheduler
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
@@ -306,12 +306,14 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
     )
     src_model.train()
-    for epoch in range(10):
+    for epoch in range(60):
         running_loss = 0.0 
-        
+        correct = 0  
+        total = 0
         for i, data in enumerate(src_train_loader):
             x_, y_ = data 
             x_ = x_.to(args.device)
+            y_ = y_.to(args.device)
             x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
             optimizer.zero_grad()
             out = src_model(x_)
@@ -319,11 +321,15 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            
+            _, predicted = torch.max(out, 1)  # Get the index of max log-probability
+            total += y_.size(0)
+            correct += (predicted == y_).sum().item()
         
         scheduler.step()
-        print(f'Epoch [{epoch+1}/{10}], '
-              f'Average Loss: {running_loss/len(src_train_loader):.4f}')  
+        accuracy = 100. * correct / total
+        print(f'Epoch [{epoch+1}/{60}], '
+              f'Average Loss: {running_loss/len(src_train_loader):.4f}'
+              f'Accuracy: {accuracy:.2f}%')  
           
 #########################################################################################################################################################################
 
