@@ -8,6 +8,7 @@ from functools import partial
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 from otdd.pytorch.distance import DatasetDistance, FeatureCost
 import torch.optim as optim
+from math import log
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy, tqdm
@@ -467,7 +468,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
     return tgt_model
 ###############################################################################################################################################    
-def label_matching_src_model(args,root, src_model, tgt_embedder):
+def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     """
     Label matching by minimize -H(Y_t| Y_s): 
       + Generate dummy label for target data.
@@ -493,44 +494,82 @@ def label_matching_src_model(args,root, src_model, tgt_embedder):
     print("load tgt dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-          
+    print("infer label and load by class...")
+    if args.infer_label:
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+        
+    else: 
+        num_classes_new = num_classes
+    
+    ####### get optimizer
+    args, src_model, optimizer, scheduler = get_optimizer_scheduler(args, src_model, module=None, n_train=n_train)
+    optimizer.zero_grad()         
     ####### train with dummy label 
-    print("Train with dummy label...")
+    print("Training with dummy label...")
+    ###### config for testing
     label_matching_ep = 5
+    max_sample = 4
     total_losses, times = [], []
+    ###### begin training with dummy label
     for ep in range(label_matching_ep):
         total_loss = 0    
         time_start = default_timer()
-        feats = []
-        datanum = 0
-        ##### shuffle dataset 
-        
         shuffled_loader = torch.utils.data.DataLoader(
                 tgt_train_loader.dataset,
                 batch_size=tgt_train_loader.batch_size,
                 shuffle=True,  # Enable shuffling to permute the order
                 num_workers=tgt_train_loader.num_workers,
                 pin_memory=tgt_train_loader.pin_memory)
-        ##### begin training
-             
+        
+        predictions = []
+        target_label = []    
         for j, data in enumerate(shuffled_loader):
-            
-            if transform is not None:
-                x, y, z = data
-            else:
-                x, y = data 
                 
-            x = x.to(args.device)
-            # out = src_model(x)
-            # feats.append(out)
-            # datanum += x.shape[0]
+               if transform is not None:
+                  x, y, z = data
+               else:
+                  x, y = data 
                 
-            # if datanum > args.maxsamples:
-            #       break
+               x = x.to(args.device)
+               y = y.to(args.device)
+               out = src_model(x)
+               predictions.append(out)
+               target_label.append(y)
+               datanum += x.shape[0] 
+               if datanum == max_sample:
+                   datanum = 0
+                   loss = CE_loss
+                   break
+                   #### run backward
 
         
         
-    return src_model        
+    return src_model  
+def CE_loss(predictions, target_label, src_num_classes, tgt_num_classes):
+    P = [[0 for _ in range(tgt_num_classes)] for _ in range(src_num_classes)]
+    
+    print("prediction: ", predictions)
+    print("target_label: ", target_label)
+    
+    # Fill P matrix
+    for index in range(len(tgt_label)):
+        true_label = target_label[index]
+        cur_predic = predictions[index]
+        for i in range(src_num_classes):
+            P[i][true_label] += cur_predic[i]
+    
+    # Compute marginal probabilities
+    maginal_p = [sum(P[i]) for i in range(src_num_classes)]  # More concise than loop
+    
+    # Compute cross-entropy loss
+    loss = 0
+    for src_label in range(src_num_classes):
+        if maginal_p[src_label] > 0:  # Avoid division by zero
+            for tgt_label in range(tgt_num_classes):
+                if P[src_label][tgt_label] > 0:  # Avoid log(0)
+                    loss += -log(P[src_label][tgt_label] / maginal_p[src_label])
+    
+    return loss
 #########################################################################################################################################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):

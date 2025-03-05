@@ -76,7 +76,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
     del src_train_dataset
     ######### label matching for src_model
-    src_model = label_matching_src_model(args,root, src_model, tgt_model.embedder)
+    src_model = label_matching_src_model(args,root, src_model, tgt_model.embedder, num_classes)
 
   
 
