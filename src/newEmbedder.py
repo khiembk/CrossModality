@@ -11,7 +11,7 @@ import torch.optim as optim
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy, tqdm
-
+from utils import count_params, count_trainable_params, calculate_stats
 def total_variance_distance(p, q):
     """
     Compute the Total Variance Distance (TVD) between two distributions p and q.
@@ -306,6 +306,12 @@ def get_pretrain_model2D(args,root,sample_shape, num_classes, loss):
         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
     )
     src_model.train()
+    set_grad_state(src_model.predictor, True)
+    print("trainabel params count :  ",count_trainable_params(src_model))  
+    for name, param in src_model.named_parameters():
+      if param.requires_grad:
+         print(name)
+         
     for epoch in range(60):
         running_loss = 0.0 
         correct = 0  
