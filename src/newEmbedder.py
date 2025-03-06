@@ -548,7 +548,7 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
                    dummy_label = []
@@ -569,7 +569,7 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
             
     return src_model  
 
-def CE_loss(dummy_label,dummy_probs , target_label, src_num_classes, tgt_num_classes):
+def CE_loss(dummy_labels,dummy_probs , target_label, src_num_classes, tgt_num_classes):
     """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
 
     Args:
@@ -593,15 +593,17 @@ def CE_loss(dummy_label,dummy_probs , target_label, src_num_classes, tgt_num_cla
     observed_src_classes = torch.unique(dummy_labels)  # e.g., [0, 1]
     observed_tgt_classes = torch.unique(target_label)
     
-    P_full = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32, requires_grad=True)  # [3, 9]
+    P_temp = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
     
-    # Manually accumulate dummy_probs into P
+    # Manually accumulate dummy_probs into P_temp
     batch_size = dummy_labels.size(0)
     for i in range(batch_size):
-        src_idx = dummy_labels[i]  # e.g., 0, 1, 0
-        tgt_idx = target_label[i]  # e.g., 2, 3, 2
-        P_full[src_idx, tgt_idx] = P_full[src_idx, tgt_idx] + dummy_probs[i]  # Add prob to P[src_idx][tgt_idx]
+        src_idx = dummy_labels[i]
+        tgt_idx = target_label[i]
+        P_temp[src_idx, tgt_idx] += dummy_probs[i]  # In-place on P_temp (no grad)
 
+    # Create P_full with gradients, using P_temp as the initial value
+    P_full = P_temp.clone().requires_grad_(True)
     # Filter P to observed classes only
     P = P_full[observed_src_classes][:, observed_tgt_classes]
     # Compute marginal probability p(dummy_label) over observed target classes

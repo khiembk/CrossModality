@@ -117,7 +117,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     # print(model)
     logging.info(f"Model Structure:\n{tgt_model}")
     tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
-    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    #embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     train_time = []
 
     print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
