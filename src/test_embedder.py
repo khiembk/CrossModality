@@ -7,41 +7,10 @@ from timeit import default_timer
 from functools import partial
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 from otdd.pytorch.distance import DatasetDistance, FeatureCost
-import torch.optim as optim
-from math import log
+
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
-import copy, tqdm
-from utils import count_params, count_trainable_params, calculate_stats
-def total_variance_distance(p, q):
-    """
-    Compute the Total Variance Distance (TVD) between two distributions p and q.
-
-    Args:
-        p (torch.Tensor): Probability distribution p.
-        q (torch.Tensor): Probability distribution q.
-
-    Returns:
-        torch.Tensor: The Total Variance Distance between p and q.
-    """
-    return 0.5 * torch.sum(torch.abs(p - q))
-
-def compute_distribution(z, bins=10, range=(0, 1)):
-    """
-    Compute the probability distribution of z using a histogram.
-
-    Args:
-        z (torch.Tensor): Embedded features.
-        bins (int): Number of bins for the histogram.
-        range (tuple): Range of the histogram.
-
-    Returns:
-        torch.Tensor: Probability distribution of z.
-    """
-    hist = torch.histc(z, bins=bins, min=range[0], max=range[1])
-    dist = hist / torch.sum(hist)  # Normalize to get a probability distribution
-    return dist
-
+import copy
 
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
@@ -68,13 +37,18 @@ class wrapper2D(torch.nn.Module):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
-        print("cur_classification: ", self.classification)
-        
-        arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
-        embed_dim = 128
-        output_dim = 1024
-        img_size = 224
-        patch_size = 4
+
+        if weight == 'tiny':
+            arch_name = "microsoft/swin-tiny-patch4-window7-224"
+            embed_dim = 96
+            output_dim = 768
+            img_size = 224
+        elif weight == 'base':
+            arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+            embed_dim = 128
+            output_dim = 1024
+            img_size = 224
+            patch_size = 4
 
         if self.classification:
             modelclass = SwinForImageClassification
@@ -98,8 +72,7 @@ class wrapper2D(torch.nn.Module):
             self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
-        set_grad_state(self.model, False)
-        set_grad_state(self.predictor, False)
+        
 
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
@@ -107,6 +80,64 @@ class wrapper2D(torch.nn.Module):
             set_grad_state(self.embedder, True)
             self.model.swin.embeddings = self.embedder  
 
+    def get_differnt_rank_all_layer_with_model(self, model, model1):
+        model_weight = []
+        model1_weight = []
+        transformer_blocks = model.model.swin.encoder.layers
+
+        for layer in transformer_blocks:
+            for block in layer.blocks:
+                for sub_layer_name, sub_layer in block.named_children():
+                    
+                    if sub_layer_name in ["attention","output", "intermediate"] : 
+                        if sub_layer_name == "attention":
+                            cur_weight_query = sub_layer.self.query.weight.detach().cpu().numpy()
+                            cur_weight_key = sub_layer.self.key.weight.detach().cpu().numpy()
+                            cur_weight_value = sub_layer.self.value.weight.detach().cpu().numpy()
+                            model_weight.append(cur_weight_query)
+                            model_weight.append(cur_weight_key)
+                            model_weight.append(cur_weight_value)
+                        if sub_layer_name == "intermediate":
+                            cur_weight = sub_layer.dense.weight.detach().cpu().numpy()
+                            model_weight.append(cur_weight)
+                        if sub_layer_name == "output":   
+                            cur_weight = sub_layer.dense.weight.detach().cpu().numpy()
+                            model_weight.append(cur_weight)
+
+            downsample = layer.downsample
+            if (downsample is not None):
+                cur_weight = downsample.reduction.weight.detach().cpu().numpy()
+                model_weight.append(cur_weight)
+
+        transformer1_blocks = model1.model.swin.encoder.layers
+
+        for layer in transformer1_blocks:
+            for block in layer.blocks:
+                for sub_layer_name, sub_layer in block.named_children():
+                     if sub_layer_name in ["attention","output", "intermediate"] : 
+                        if sub_layer_name == "attention":
+                            cur_weight_query = sub_layer.self.query.weight.detach().cpu().numpy()
+                            cur_weight_key = sub_layer.self.key.weight.detach().cpu().numpy()
+                            cur_weight_value = sub_layer.self.value.weight.detach().cpu().numpy()
+                            model1_weight.append(cur_weight_query)
+                            model1_weight.append(cur_weight_key)
+                            model1_weight.append(cur_weight_value)
+                        if sub_layer_name == "intermediate":
+                            cur_weight = sub_layer.dense.weight.detach().cpu().numpy()
+                            model1_weight.append(cur_weight)
+                        if sub_layer_name == "output":   
+                            cur_weight = sub_layer.dense.weight.detach().cpu().numpy()
+                            model1_weight.append(cur_weight)
+
+            downsample = layer.downsample
+            if (downsample is not None):
+                cur_weight = downsample.reduction.weight.detach().cpu().numpy()
+                model1_weight.append(cur_weight)
+
+        for index in range(len(model_weight)):
+            cur = model_weight[index] - model1_weight[index]
+            rank = np.linalg.matrix_rank(cur)
+            print("rank of lora: ",rank)        
 
     def forward(self, x):
         if self.output_raw:
@@ -167,8 +198,7 @@ class wrapper1D(torch.nn.Module):
         if activation == 'sigmoid':
             self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())  
             
-        set_grad_state(self.model, False)
-        set_grad_state(self.predictor, False)
+        
 
 
     def forward(self, x):
@@ -283,351 +313,8 @@ class Embeddings1D(nn.Module):
             return x, self.patched_dimensions
 
 
-#########################################################################################################################################################################
-def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
-    ###################################### train predictor 
-    """
-    get train model and feature: 
-       + get trained predictor but embedder is convolution 
-    """
-    print("get src_model and src_feature...")
-    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
-    IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
-    num_classes = 10
-    print("num class: ", num_classes)    
-    src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
-    src_model.output_raw = False
-    # Define optimizer
-    optimizer = optim.AdamW(
-        src_model.parameters(),
-        lr=args.lr if hasattr(args, 'lr') else 1e-4,
-        weight_decay=0.05
-    )
-    src_model = src_model.to(args.device)
-    # Optional: Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=args.embedder_epochs/2
-    )
-    criterion = nn.CrossEntropyLoss(
-        label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
-    )
-    src_model.train()
-    set_grad_state(src_model.predictor, True)
-    print("trainabel params count :  ",count_trainable_params(src_model))
-    print("trainable params: ")  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
-    #print("model architechture: ", src_model)      
-    for epoch in range(args.embedder_epochs//2):
-        running_loss = 0.0 
-        correct = 0  
-        total = 0
-        for i, data in enumerate(src_train_loader):
-            x_, y_ = data 
-            x_ = x_.to(args.device)
-            y_ = y_.to(args.device)
-            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
-            optimizer.zero_grad()
-            out = src_model(x_)
-            loss = criterion(out, y_)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-            _, predicted = torch.max(out, 1)  # Get the index of max log-probability
-            total += y_.size(0)
-            correct += (predicted == y_).sum().item()
-        
-        scheduler.step()
-        accuracy = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{args.embedder_epochs//2}], '
-              f'Average Loss: {running_loss/len(src_train_loader):.4f}'
-              f' Accuracy: {accuracy:.2f}%')  
-        
-        
-    """
-    #### extract body model and predictor from model   
-    predictor = src_model.predictor
-    body_model = src_model.model.swin  # Swin Transformer backbone
-    embeddings = src_model.model.swin.embeddings
-    """
-    ##### set output_raw 
-    src_model.output_raw = True
-    src_model.eval()
-    ##### get source feature from cifar10
-    src_feats = []
-    src_ys = []
-    for i, data in enumerate(src_train_loader):
-            x_, y_ = data 
-            x_ = x_.to(args.device)
-            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
-            out = src_model(x_)
-            if len(out.shape) > 2:
-                out = out.mean(1)
 
-            src_ys.append(y_.detach().cpu())
-            src_feats.append(out.detach().cpu())
-            
-    src_feats = torch.cat(src_feats, 0)
-    src_ys = torch.cat(src_ys, 0).long()
-    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-    ##### clearn cache
-    del src_ys, src_feats, src_train_loader
-    torch.cuda.empty_cache()
-    ##### return src_model and src_train_dataset         
-    return src_model, src_train_dataset
-    
-
-##############################################################################################################################################
-def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
-    """
-    Embedder training using optimal transport to minimize source and target feture distribution: 
-      + Early implement using OTDD
-      + Feature work using Total Variance distance 
-      + return tgt_model
-    """ 
-    
-    print("feature matching....")
-    ##### check tgt_model
-    set_grad_state(tgt_model.embedder, True)
-    print("trainabel params count :  ",count_trainable_params(tgt_model))
-    print("trainable params: ")  
-    for name, param in tgt_model.named_parameters():
-      if param.requires_grad:
-         print(name)
-    ### load tgt_loader
-    print("load tgt dataset...") 
-    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
-    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    #### fix fowrad flow and set trainable to tgt_model
-    tgt_model.output_raw = True
-    tgt_model = tgt_model.to(args.device).train()
-    
-    #### init score function 
-    score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
-    ##### get optimizer
-    args, tgt_model, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
-    tgt_model_optimizer.zero_grad()
-    ##### train embedder with score_func
-     
-    total_losses, times, embedder_stats = [], [], []
-    print("begin feature matching...")
-    for ep in range(args.embedder_epochs):   
-
-        total_loss = 0    
-        time_start = default_timer()
-        feats = []
-        datanum = 0
-        ##### shuffle dataset 
-        
-        shuffled_loader = torch.utils.data.DataLoader(
-                tgt_train_loader.dataset,
-                batch_size=tgt_train_loader.batch_size,
-                shuffle=True,  # Enable shuffling to permute the order
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory)
-        ##### begin training
-             
-        for j, data in enumerate(shuffled_loader):
-            
-            if transform is not None:
-                x, y, z = data
-            else:
-                x, y = data 
-                
-            x = x.to(args.device)
-            out = tgt_model(x)
-            
-            feats.append(out)
-            datanum += x.shape[0]
-                
-            if datanum > args.maxsamples:
-                  break
-
-        feats = torch.cat(feats, 0).mean(1)
-        if feats.shape[0] > 1:
-            loss = (len(feats)/len(tgt_train_loader))*score_func(feats)
-            loss.backward()
-            total_loss += loss.item()
-
-        time_end = default_timer()  
-        times.append(time_end - time_start) 
-
-        total_losses.append(total_loss)
-        embedder_stats.append([total_losses[-1], times[-1]])
-        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
-
-        tgt_model_optimizer.step()
-        tgt_model_scheduler.step()
-        tgt_model_optimizer.zero_grad()
-
-    del tgt_train_loader 
-    torch.cuda.empty_cache()
-
-    tgt_model.output_raw = False
-
-    return tgt_model
-###############################################################################################################################################    
-def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
-    """
-    Label matching by minimize -H(Y_t| Y_s): 
-      + Generate dummy label for target data.
-      + Compute emperical P(Y_t| Y_s).
-      + Minimize -H(Y_t| Y_s)
-      + Return src_model without predictor
-    """  
-    print("label matching with src model...")
-    ##### check src_model
-    src_model.embedder = tgt_embedder
-    src_model.model.swin.embeddings = src_model.embedder
-    set_grad_state(src_model.embedder, True)
-    set_grad_state(src_model.model, True)
-    print("trainabel params count :  ",count_trainable_params(src_model))
-    print("trainable params: ")
-    src_model.output_raw = False
-    src_model = src_model.to(args.device).train()  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
-         
-    ##### load tgt dataset
-    print("load tgt dataset...")
-    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
-    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    print("infer label...")
-    if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
-        
-    else: 
-        num_classes_new = num_classes
-    
-    ####### get optimizer
-    args, src_model, optimizer, scheduler = get_optimizer_scheduler(args, src_model, module=None, n_train=n_train)
-    optimizer.zero_grad()         
-    ####### train with dummy label 
-    print("Training with dummy label...")
-    ###### config for testing
-    label_matching_ep = 5
-    max_sample = 4
-    total_losses, times, stats = [], [], []
-    ###### begin training with dummy label
-    for ep in range(label_matching_ep):
-        total_loss = 0    
-        time_start = default_timer()
-        shuffled_loader = torch.utils.data.DataLoader(
-                tgt_train_loader.dataset,
-                batch_size=tgt_train_loader.batch_size,
-                shuffle=True,  # Enable shuffling to permute the order
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory)
-        
-        predictions = []
-        target_label = []   
-        datanum = 0 
-        for j, data in enumerate(shuffled_loader):
-                
-               if transform is not None:
-                  x, y, z = data
-               else:
-                  x, y = data 
-                
-               x = x.to(args.device)
-               y = y.to(args.device)
-               out = src_model(x)
-               out = F.softmax(out, dim=-1)
-               predictions.append(out)
-               target_label.append(y)
-               datanum += x.shape[0] 
-               if datanum == max_sample:
-                   datanum = 0
-                   loss = CE_loss(predictions, target_label,10,num_classes_new)
-                   loss.backward()
-                   total_loss += loss.item()
-                   predictions = []
-                   target_label = []
-        
-        time_end = default_timer()  
-        times.append(time_end - time_start) 
-
-        total_losses.append(total_loss)
-        stats.append([total_losses[-1], times[-1]])
-        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
-
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()           
-
-            
-    return src_model  
-
-def CE_loss(predictions, target_label, src_num_classes, tgt_num_classes):
-    """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
-
-    Args:
-        predictions (_type_): list of return predictions.
-        target_label (_type_): list of target label.
-        src_num_classes (_type_): number of src classes.
-        tgt_num_classes (_type_): number of tgt classes.
-
-    Returns:
-        tensor : -H(Y_t| Y_s)
-    """
-
-    if isinstance(predictions, list):
-        predictions = predictions[0]
-    if isinstance(target_label, list):
-        target_label = target_label[0]
-    
-    # Flatten target_label if it’s [batch_size, 1]
-    if target_label.dim() == 2:
-        target_label = target_label.squeeze(1)
-    
-    # Ensure tensors are on the same device
-    device = predictions.device
-    target_label = target_label.to(device).detach()
-    # Get unique target classes in this batch
-    observed_tgt_classes = torch.unique(target_label)  # e.g., tensor([2, 5, 7])
-    num_observed_classes = observed_tgt_classes.size(0)  # e.g., 3
-    
-    # Initialize P with full size
-    P_full = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
-    
-    # Fill P using scatter_add for all classes
-    
-    for i in range(predictions.size(0)):
-        P_full[:, target_label[i]] += predictions[i]
-    # Filter P to only observed target classes
-    P = P_full[:, observed_tgt_classes]  # Shape: [src_num_classes, num_observed_classes], e.g., [10, 3]
-    
-    # Compute marginal probabilities over observed classes
-    maginal_p = P.sum(dim=1)  # Shape: [src_num_classes], e.g., [10]
-    
-    # Avoid division by zero by masking where maginal_p > 0
-    valid_src_mask = maginal_p > 0  # Shape: [src_num_classes]
-    maginal_p_safe = maginal_p[valid_src_mask]  # Shape: [num_valid_src_classes]
-    
-    if maginal_p_safe.numel() == 0:  # No valid source classes
-        return torch.tensor(0.0, device=device, requires_grad=predictions.requires_grad)
-    
-    # Filter P to only valid source classes
-    P_filtered = P[valid_src_mask]  # Shape: [num_valid_src_classes, num_observed_classes]
-    
-    # Compute conditional probabilities
-    maginal_p_broadcasted = maginal_p_safe.unsqueeze(1)  # Shape: [num_valid_src_classes, 1]
-    P_div_maginal = P_filtered / maginal_p_broadcasted  # Shape: [num_valid_src_classes, num_observed_classes]
-    
-    # Mask to avoid log(0)
-    mask = P_filtered > 0  # Shape: [num_valid_src_classes, num_observed_classes]
-    P_div_maginal_safe = P_div_maginal[mask]  # Shape: [num_valid_elements]
-    
-    if P_div_maginal_safe.numel() > 0:
-        loss = -torch.log(P_div_maginal_safe).sum()
-    else:
-        loss = torch.tensor(0.0, device=device, requires_grad=predictions.requires_grad)
-    
-    return loss
-#########################################################################################################################################################################
+####################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
     

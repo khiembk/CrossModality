@@ -1,97 +1,156 @@
 import os
 import argparse
 import random
-import logging
+
 import numpy as np
 import torch
-import torch.backends.cudnn as cudnn # type: ignore
+import torch.backends.cudnn as cudnn
 from timeit import default_timer
-from tqdm import tqdm
+
+
+from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler
+from utils import count_params, count_trainable_params, calculate_stats
+from test_embedder import get_tgt_model
+from test_embedder import wrapper2D
 import yaml
 from types import SimpleNamespace
-from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable
-from utils import count_params, count_trainable_params, calculate_stats
-from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,label_matching_src_model
 
-def set_seed(seed: int = 42) -> None:
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    # When running on the CuDNN backend, two further options must be set
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    print(f"Random seed set as {seed}")
+def main(use_determined, args, info=None, context=None):
 
-def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None):
-    set_seed()
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    #args.device = 'cuda' 
-    print("The current device is: ", args.device)
     root = '/datasets' if use_determined else './datasets'
-    if (DatasetRoot != None):
-        root = DatasetRoot + '/datasets'
 
-    print("Path folder dataset: ",root) 
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
 
-    log_file = f"{args.dataset}_{args.finetune_method}.log"
-    if (log_folder is not None):
-        log_dir = os.path.join(log_folder)
-        os.makedirs(log_dir, exist_ok= True)
-        log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
-
-    logging.basicConfig(filename= log_file,
-                    level=logging.INFO,  # Set logging level
-                    format='%(asctime)s - %(levelname)s - %(message)s') 
     if args.reproducibility:
         cudnn.deterministic = True
         cudnn.benchmark = False
     else:
         cudnn.benchmark = True
-    
+
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
-    
+
     if load_embedder(use_determined, args):
-        print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
-    
-    ######### config for testing 
-    args.embedder_epochs = 4  
-    ######### get src_model and src_feature
-    src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,loss)
-    
-    ########## init tgt_model
-    wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-    tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
-    tgt_model = tgt_model.to(args.device).train()
-    
-    ######### feature matching for tgt_model.
-    tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
-    del src_train_dataset
-    ######### label matching for src_model.
-    src_model = label_matching_src_model(args,root, src_model, tgt_model.embedder, num_classes)
-    ######### fine-tune all tgt_model after feature-label matching.
-    print("Init tgt_model backbone by src_model...")
-    tgt_model.model.swin = src_model.model.swin
-    del src_model
-    
 
-  
+    model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss, False, use_determined, context)
+    #src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out) 
 
-def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
+    train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
+    metric, compare_metrics = get_metric(root, args.dataset)
+    decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 
+    
+    model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, model, None, None, n_train, freq=args.validation_freq, test=True)
+    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    
+    offset = 0 if ep_start == 0 else 1
+    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, module=None if args.predictor_epochs == 0 or ep_start >= args.predictor_epochs else 'predictor', n_train=n_train)
+    train_full = args.predictor_epochs == 0 or ep_start >= args.predictor_epochs
+    
+    if args.device == 'cuda':
+        model.cuda()
+        try:
+            loss.cuda()
+        except:
+            pass
+        if decoder is not None:
+            decoder.cuda()
 
-    model.train()             
+    print("\n------- Experiment Summary --------")
+    print("id:", args.experiment_id)
+    print("dataset:", args.dataset, "\tbatch size:", args.batch_size, "\tlr:", args.optimizer["params"]["lr"])
+    print("num train batch:", n_train, "\tnum validation batch:", n_val, "\tnum test batch:", n_test)
+    print("finetune method:", args.finetune_method)
+    print("param count:", count_params(model), count_trainable_params(model))
+    print(model)
+    
+    model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
+    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    train_time = []
+
+    print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
+
+    for ep in range(ep_start, args.epochs + args.predictor_epochs):
+        if not train_full and ep >= args.predictor_epochs:
+            args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, module=None, n_train=n_train)
+            train_full = True
+
+        time_start = default_timer()
+
+        train_loss = train_one_epoch(context, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform)
+        train_time_ep = default_timer() -  time_start 
+
+        if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
+                
+            val_loss, val_score = evaluate(context, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
+
+            train_losses.append(train_loss)
+            train_score.append(val_score)
+            train_time.append(train_time_ep)
+
+            print("[train", "full" if ep >= args.predictor_epochs else "predictor", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
+
+            if use_determined:
+                id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
+                try:
+                    context.train.report_training_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"train loss": train_loss, "epoch time": train_time_ep})
+                    context.train.report_validation_metrics(steps_completed=(ep + 1) * n_train + offset, metrics={"val score": val_score})
+                except:
+                    pass
+                    
+            if compare_metrics(train_score) == val_score:
+                if not use_determined:
+                    id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
+                id_best = id_current
+            
+
+        if ep == args.epochs + args.predictor_epochs - 1:
+            print("\n------- Start Test --------")
+            test_scores = []
+            test_model = model
+            test_time_start = default_timer()
+            test_loss, test_score = evaluate(context, args, test_model, test_loader, loss, metric, n_test, decoder, transform, fsd_epoch=200 if args.dataset == 'FSD' else None)
+            test_time_end = default_timer()
+            test_scores.append(test_score)
+
+            print("[test last]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
+            
+            test_model, _, _, _, _, _ = load_state(use_determined, args, context, test_model, optimizer, scheduler, n_train, id_best, test=True)
+            test_time_start = default_timer()
+            test_loss, test_score = evaluate(context, args, test_model, test_loader, loss, metric, n_test, decoder, transform, fsd_epoch=200 if args.dataset == 'FSD' else None)
+            test_time_end = default_timer()
+            test_scores.append(test_score)
+
+            print("[test best-validated]", "\ttime elapsed:", "%.4f" % (test_time_end - test_time_start), "\ttest loss:", "%.4f" % test_loss, "\ttest score:", "%.4f" % test_score)
+            
+            if use_determined:
+                checkpoint_metadata = {"steps_completed": (ep + 1) * n_train, "epochs": ep}
+                with context.checkpoint.store_path(checkpoint_metadata) as (path, uuid):
+                    np.save(os.path.join(path, 'test_score.npy'), test_scores)
+            else:
+                path = 'results/'  + args.dataset +'/' + str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
+                np.save(os.path.join(path, 'test_score.npy'), test_scores)
+
+           
+        if use_determined and context.preempt.should_preempt():
+            print("paused")
+            return
+    
+    #model.get_differnt_rank_all_layer_with_model(model, src_model)
+
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
+
+    model.train()
+                    
     train_loss = 0
     optimizer.zero_grad()
 
-    for i, data in enumerate(tqdm(loader, desc="Training Progress", leave=True)):
+    for i, data in enumerate(loader):
 
         if transform is not None:
             x, y, z = data
@@ -115,7 +174,7 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
 
         if args.dataset[:4] == "DRUG":
             out = out.squeeze(1)
-        
+
         l = loss(out, y)
         l.backward()
 
@@ -124,15 +183,13 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
 
         if (i + 1) % args.accum == 0:
             optimizer.step()
-            if (mode == 'ada') :
-                model.model.update_and_allocate(i)
             optimizer.zero_grad()
         
         if args.lr_sched_iter:
             scheduler.step()
 
         train_loss += l.item()
-        
+
         if i >= temp - 1:
             break
 
@@ -248,8 +305,7 @@ def save_with_path(path, args, model, optimizer, scheduler, train_score, train_l
 
     rng_state_dict = {
                 'cpu_rng_state': torch.get_rng_state(),
-                'gpu_rng_state': torch.get_rng_state(),
-                # work around for new server
+                'gpu_rng_state': torch.cuda.get_rng_state(),
                 'numpy_rng_state': np.random.get_state(),
                 'py_rng_state': random.getstate()
             }
@@ -296,10 +352,10 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
         scheduler.load_state_dict(model_state_dict['scheduler_state_dict'])
 
         rng_state_dict = torch.load(os.path.join(path, 'rng_state.ckpt'), map_location='cpu')
-        # torch.set_rng_state(rng_state_dict['cpu_rng_state'])
-        # torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
-        # np.random.set_state(rng_state_dict['numpy_rng_state'])
-        # random.setstate(rng_state_dict['py_rng_state'])
+        torch.set_rng_state(rng_state_dict['cpu_rng_state'])
+        torch.cuda.set_rng_state(rng_state_dict['gpu_rng_state'])
+        np.random.set_state(rng_state_dict['numpy_rng_state'])
+        random.setstate(rng_state_dict['py_rng_state'])
 
         if use_determined: 
             try:
@@ -317,25 +373,54 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
+    parser.add_argument('--lora_rank', type= int, default= -1, help='LORA rank')
+    parser.add_argument('--mode', type= str, default= 'lora', help='mode for ada or lora')
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
+    parser.add_argument('--save_per_ep', type= int, default= 1, help='save per epoch')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    
+    parser.add_argument('--warm_init', type= bool, default= True, help='warm init controller')
     args = parser.parse_args()
+    lora_rank = args.lora_rank
     embedder_ep = args.embedder_ep
+    save_per_ep = args.save_per_ep
+    mode = args.mode 
     root_dataset = args.root_dataset
     log_folder = args.log_folder
+    warm_init = args.warm_init
+    print("current mode: ", mode)
     if args.config is not None:     
         import yaml
+
         with open(args.config, 'r') as stream:
+            #args = AttrDict(yaml.safe_load(stream)['hyperparameters']
+            #with open('configs/cifar100.yaml', 'r') as stream:
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
-            
+            args.experiment_id = lora_rank
             if (embedder_ep != None): 
                 args.embedder_epochs = embedder_ep
+            if (mode == 'from_scratch'):
+                args.experiment_id = -2
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
                      
-            main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
+            main(False, args)
+    else:
+        import determined as det
+        from determined.experimental import client
+        from determined.pytorch import DataLoader
 
-    
+        info = det.get_cluster_info()
+        #args = AttrDict(info.trial.hparams)
+        args = SimpleNamespace(**info.trial.hparams)
+        args.experiment_id = lora_rank
+        if (embedder_ep != None): 
+                args.embedder_epochs = embedder_ep
+        if (args.embedder_epochs > 0):
+            args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+        if (mode == 'from_scratch'):
+            args.experiment_id = -2
+        print("my lora rank: ", lora_rank)
+        with det.core.init() as context:
+            main(True,args ,info, context)
