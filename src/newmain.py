@@ -72,11 +72,15 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     tgt_model = tgt_model.to(args.device).train()
     
-    ######### feature matching for tgt_model
+    ######### feature matching for tgt_model.
     tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
     del src_train_dataset
-    ######### label matching for src_model
+    ######### label matching for src_model.
     src_model = label_matching_src_model(args,root, src_model, tgt_model.embedder, num_classes)
+    ######### fine-tune all tgt_model after feature-label matching.
+    tgt_model.model.swin = src_model.model.swin
+    del src_model
+    
 
   
 

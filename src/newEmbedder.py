@@ -509,7 +509,7 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     ###### config for testing
     label_matching_ep = 5
     max_sample = 4
-    total_losses, times = [], []
+    total_losses, times, stats = [], []
     ###### begin training with dummy label
     for ep in range(label_matching_ep):
         total_loss = 0    
@@ -538,14 +538,38 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
                datanum += x.shape[0] 
                if datanum == max_sample:
                    datanum = 0
-                   loss = CE_loss
-                   break
-                   #### run backward
+                   loss = CE_loss(predictions, target_label,10,num_classes_new)
+                   loss.backward()
+                   total_loss += loss.item()
+                   predictions = []
+                   target_label = []
+        
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
 
-        
-        
+        total_losses.append(total_loss)
+        stats.append([total_losses[-1], times[-1]])
+        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
+
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()           
+
+            
     return src_model  
+
 def CE_loss(predictions, target_label, src_num_classes, tgt_num_classes):
+    """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
+
+    Args:
+        predictions (_type_): list of return predictions.
+        target_label (_type_): list of target label.
+        src_num_classes (_type_): number of src classes.
+        tgt_num_classes (_type_): number of tgt classes.
+
+    Returns:
+        float : -H(Y_t| Y_s)
+    """
     P = [[0 for _ in range(tgt_num_classes)] for _ in range(src_num_classes)]
     
     print("prediction: ", predictions)
@@ -561,7 +585,7 @@ def CE_loss(predictions, target_label, src_num_classes, tgt_num_classes):
     # Compute marginal probabilities
     maginal_p = [sum(P[i]) for i in range(src_num_classes)]  # More concise than loop
     
-    # Compute cross-entropy loss
+    # Compute conditional-entropy loss
     loss = 0
     for src_label in range(src_num_classes):
         if maginal_p[src_label] > 0:  # Avoid division by zero
