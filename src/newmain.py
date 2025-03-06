@@ -63,7 +63,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         args.embedder_epochs = 0
     
     ######### config for testing 
-    args.embedder_epochs = 4  
+    args.embedder_epochs = 10  
     ######### get src_model and src_feature
     src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,loss)
     
@@ -90,7 +90,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     ###########
     print("load dic if model was trained ...")
     tgt_model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, tgt_model, None, None, n_train, freq=args.validation_freq, test=True)
-    embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
+    # embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     offset = 0 if ep_start == 0 else 1
     args, tgt_model, optimizer, scheduler = get_optimizer_scheduler(args, tgt_model, module=None if args.predictor_epochs == 0 or ep_start >= args.predictor_epochs else 'predictor', n_train=n_train)
     train_full = args.predictor_epochs == 0 or ep_start >= args.predictor_epochs
@@ -116,10 +116,10 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     # print("print model")
     # print(model)
     logging.info(f"Model Structure:\n{tgt_model}")
-    tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, model, optimizer, scheduler, n_train, freq=args.validation_freq)
+    tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, tgt_model, optimizer, scheduler, n_train, freq=args.validation_freq)
     #embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     train_time = []
-
+    embedder_stats = []
     print("\n------- Start Training --------" if ep_start == 0 else "\n------- Resume Training --------")
 
     for ep in range(ep_start, args.epochs + args.predictor_epochs):
@@ -129,7 +129,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
 
         time_start = default_timer()
 
-        train_loss = train_one_epoch(context, args, tgt_model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform,mode =mode)
+        train_loss = train_one_epoch(context, args, tgt_model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform)
         train_time_ep = default_timer() -  time_start 
 
         if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
@@ -198,7 +198,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
 
 
 
-def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None, mode = 'lora'):    
+def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
 
     model.train()             
     train_loss = 0
@@ -237,8 +237,6 @@ def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, te
 
         if (i + 1) % args.accum == 0:
             optimizer.step()
-            if (mode == 'ada') :
-                model.model.update_and_allocate(i)
             optimizer.zero_grad()
         
         if args.lr_sched_iter:

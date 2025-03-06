@@ -481,7 +481,7 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     ##### check src_model
     src_model.embedder = tgt_embedder
     src_model.model.swin.embeddings = src_model.embedder
-    set_grad_state(src_model.embedder, True)
+    set_grad_state(src_model.embedder, False) #86753474
     set_grad_state(src_model.model, True)
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
@@ -512,17 +512,16 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     max_sample = 24
     total_losses, times, stats = [], [], []
     ###### begin training with dummy label
-    
-    for ep in range(label_matching_ep):
-        total_loss = 0    
-        time_start = default_timer()
-        shuffled_loader = torch.utils.data.DataLoader(
+    shuffled_loader = torch.utils.data.DataLoader(
                 tgt_train_loader.dataset,
                 batch_size=tgt_train_loader.batch_size,
                 shuffle=True,  # Enable shuffling to permute the order
                 num_workers=tgt_train_loader.num_workers,
                 pin_memory=tgt_train_loader.pin_memory)
-        
+    
+    for ep in range(label_matching_ep):
+        total_loss = 0    
+        time_start = default_timer()    
         dummy_label = []
         dummy_probability = []
         target_label = []   
