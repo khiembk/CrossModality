@@ -481,15 +481,15 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     ##### check src_model
     src_model.embedder = tgt_embedder
     src_model.model.swin.embeddings = src_model.embedder
-    set_grad_state(src_model.embedder, False) #86753474
     set_grad_state(src_model.model, True)
+    set_grad_state(src_model.embedder, False) #86753474
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
     src_model.output_raw = False
     src_model = src_model.to(args.device).train()  
-    # for name, param in src_model.named_parameters():
-    #   if param.requires_grad:
-    #      print(name)
+    for name, param in src_model.named_parameters():
+      if param.requires_grad:
+         print(name)
          
     ##### load tgt dataset
     print("load tgt dataset...")
