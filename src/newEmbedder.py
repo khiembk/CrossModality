@@ -522,7 +522,8 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
                 num_workers=tgt_train_loader.num_workers,
                 pin_memory=tgt_train_loader.pin_memory)
         
-        predictions = []
+        dummy_probabilities = []        
+        dummy_labels = []
         target_label = []   
         datanum = 0 
         for j, data in enumerate(shuffled_loader):
@@ -536,15 +537,18 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
                y = y.to(args.device)
                out = src_model(x)
                out = F.softmax(out, dim=-1)
-               predictions.append(out)
+               dummy_prob, dummy_predict = torch.max(out, 1)
+               dummy_labels.append(dummy_predict)
+               dummy_probabilities.append(dummy_prob)
                target_label.append(y)
                datanum += x.shape[0] 
                if datanum == max_sample:
                    datanum = 0
-                   loss = CE_loss(predictions, target_label,10,num_classes_new)
+                   loss = CE_loss(dummy_labels,dummy_probabilities ,target_label,10,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
-                   predictions = []
+                   dummy_labels = []
+                   dummy_probabilities = []
                    target_label = []
         
         time_end = default_timer()  
@@ -561,72 +565,69 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
             
     return src_model  
 
-def CE_loss(predictions, target_label, src_num_classes, tgt_num_classes):
+def CE_loss(dummy_labels,dummy_probs, target_label, src_num_classes, tgt_num_classes):
     """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
 
     Args:
-        predictions (_type_): list of return predictions.
-        target_label (_type_): list of target label.
-        src_num_classes (_type_): number of src classes.
-        tgt_num_classes (_type_): number of tgt classes.
+        dummy_labels (_type_).
+        dummy_probs (_type_).
+        target_label (_type_).
+        src_num_classes (_type_).
+        tgt_num_classes (_type_).
 
     Returns:
         tensor : -H(Y_t| Y_s)
     """
-
-    if isinstance(predictions, list):
-        predictions = predictions[0]
-    if isinstance(target_label, list):
-        target_label = target_label[0]
     
-    # Flatten target_label if it’s [batch_size, 1]
-    if target_label.dim() == 2:
-        target_label = target_label.squeeze(1)
-    
-    # Ensure tensors are on the same device
-    device = predictions.device
+    device = dummy_probs.device
+    dummy_labels = dummy_labels.to(device).detach()  # No gradients for indices
     target_label = target_label.to(device).detach()
-    # Get unique target classes in this batch
-    observed_tgt_classes = torch.unique(target_label)  # e.g., tensor([2, 5, 7])
-    num_observed_classes = observed_tgt_classes.size(0)  # e.g., 3
+    dummy_probs = dummy_probs.to(device)
     
-    # Initialize P with full size
-    P_full = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
+    ##### get observed classes 
+    # Get unique observed classes in this batch
+    observed_src_classes = torch.unique(dummy_labels)  # e.g., [0, 1]
+    observed_tgt_classes = torch.unique(target_label)
     
-    # Fill P using scatter_add for all classes
+    P_full = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32, requires_grad=True)  # [3, 9]
     
-    for i in range(predictions.size(0)):
-        P_full[:, target_label[i]] += predictions[i]
-    # Filter P to only observed target classes
-    P = P_full[:, observed_tgt_classes]  # Shape: [src_num_classes, num_observed_classes], e.g., [10, 3]
-    
-    # Compute marginal probabilities over observed classes
-    maginal_p = P.sum(dim=1)  # Shape: [src_num_classes], e.g., [10]
-    
-    # Avoid division by zero by masking where maginal_p > 0
-    valid_src_mask = maginal_p > 0  # Shape: [src_num_classes]
-    maginal_p_safe = maginal_p[valid_src_mask]  # Shape: [num_valid_src_classes]
-    
-    if maginal_p_safe.numel() == 0:  # No valid source classes
-        return torch.tensor(0.0, device=device, requires_grad=predictions.requires_grad)
-    
-    # Filter P to only valid source classes
-    P_filtered = P[valid_src_mask]  # Shape: [num_valid_src_classes, num_observed_classes]
-    
-    # Compute conditional probabilities
-    maginal_p_broadcasted = maginal_p_safe.unsqueeze(1)  # Shape: [num_valid_src_classes, 1]
-    P_div_maginal = P_filtered / maginal_p_broadcasted  # Shape: [num_valid_src_classes, num_observed_classes]
-    
+    # Manually accumulate dummy_probs into P
+    batch_size = dummy_labels.size(0)
+    for i in range(batch_size):
+        src_idx = dummy_labels[i]  # e.g., 0, 1, 0
+        tgt_idx = target_label[i]  # e.g., 2, 3, 2
+        P_full[src_idx, tgt_idx] = P_full[src_idx, tgt_idx] + dummy_probs[i]  # Add prob to P[src_idx][tgt_idx]
+
+    # Filter P to observed classes only
+    P = P_full[observed_src_classes][:, observed_tgt_classes]
+    # Compute marginal probability p(dummy_label) over observed target classes
+    marginal_p = P.sum(dim=1)  # Shape: [num_observed_src], e.g., [2]
+
+    # Avoid division by zero
+    valid_src_mask = marginal_p > 0  # Shape: [num_observed_src]
+    marginal_p_safe = marginal_p[valid_src_mask]  # Shape: [num_valid_src]
+
+    if marginal_p_safe.numel() == 0:
+        return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
+
+    # Filter P to valid source classes
+    P_filtered = P[valid_src_mask]  # Shape: [num_valid_src, num_observed_tgt]
+
+    # Compute conditional probability p(target_label | dummy_label)
+    P_cond = P_filtered / marginal_p_safe.unsqueeze(1)  # Shape: [num_valid_src, num_observed_tgt]
+
     # Mask to avoid log(0)
-    mask = P_filtered > 0  # Shape: [num_valid_src_classes, num_observed_classes]
-    P_div_maginal_safe = P_div_maginal[mask]  # Shape: [num_valid_elements]
-    
-    if P_div_maginal_safe.numel() > 0:
-        loss = -torch.log(P_div_maginal_safe).sum()
+    mask = P_filtered > 0  # Shape: [num_valid_src, num_observed_tgt]
+    P_cond_safe = P_cond[mask]  # Shape: [num_valid_elements]
+
+    if P_cond_safe.numel() > 0:
+        loss = -torch.log(P_cond_safe).sum()
     else:
-        loss = torch.tensor(0.0, device=device, requires_grad=predictions.requires_grad)
+        loss = torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
+
+    return loss  
     
-    return loss
+    
 #########################################################################################################################################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
