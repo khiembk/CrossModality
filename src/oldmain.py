@@ -73,7 +73,7 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
 
     print("\n------- Experiment Summary --------")
     print("id:", args.experiment_id)
-    print("dataset:", args.dataset, "\tbatch size:", args.batch_size, "\tlr:", args.optimizer.params.lr)
+    print("dataset:", args.dataset, "\tbatch size:", args.batch_size, "\tlr:", args.optimizer["params"]["lr"])
     print("num train batch:", n_train, "\tnum validation batch:", n_val, "\tnum test batch:", n_test)
     print("finetune method:", args.finetune_method)
     print("param count:", count_params(model), count_trainable_params(model))
