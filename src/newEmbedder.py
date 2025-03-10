@@ -491,7 +491,7 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
     ####### train with dummy label 
     print("Training with dummy label...")
     ###### config for testing
-    label_matching_ep = 20
+    label_matching_ep = (args.epochs//10) + 1 
     max_sample = 24
     total_losses, times, stats = [], [], []
     ###### begin training with dummy label
@@ -536,7 +536,14 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
                    dummy_label = []
                    target_label = []
                    dummy_probability = []
-        
+        ###################### handle leftover dataset.             
+        dummy_labels_tensor = torch.cat(dummy_label, dim=0)
+        dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
+        target_label_tensor = torch.cat(target_label, dim=0)
+        loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+        loss.backward()
+        total_loss += loss.item()
+        ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 
 
