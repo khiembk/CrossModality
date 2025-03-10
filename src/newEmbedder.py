@@ -380,7 +380,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
     
 
 ##############################################################################################################################################
-def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
+def feature_matching_tgt_2Dmodel(args,root , tgt_model, src_train_dataset):
     """
     Embedder training using optimal transport to minimize source and target feture distribution: 
       + Early implement using OTDD
@@ -469,7 +469,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
     return tgt_model
 ###############################################################################################################################################    
-def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
+def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes):
     """
     Label matching by minimize -H(Y_t| Y_s): 
       + Generate dummy label for target data.
@@ -487,9 +487,9 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     print("trainable params: ")
     src_model.output_raw = False
     src_model = src_model.to(args.device).train()  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
+    # for name, param in src_model.named_parameters():
+    #   if param.requires_grad:
+    #      print(name)
          
     ##### load tgt dataset
     print("load tgt dataset...")
@@ -715,6 +715,20 @@ def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, t
         return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
 
     return loss
+#########################################################################################################################################################################
+def feature_matching_tgt_1Dmodel(args,root , tgt_model, src_train_dataset):
+    """
+    Feature matching with 1D task:
+      + Early implement using OTDD
+      + Feature work using Total Variance distance 
+      + return tgt_model
+    """
+    ####### load src train dataset.
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
+    
+    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
+    return 0
 #########################################################################################################################################################################
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
     
