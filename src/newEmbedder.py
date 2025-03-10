@@ -284,7 +284,7 @@ class Embeddings1D(nn.Module):
 
 
 #########################################################################################################################################################################
-def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
+def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_classes = 1000):
     ###################################### train predictor 
     """
     get train model and feature: 
@@ -296,62 +296,8 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
     num_classes = 10
     print("num class: ", num_classes)    
     src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
-    src_model.output_raw = False
-    # Define optimizer
-    optimizer = optim.AdamW(
-        src_model.parameters(),
-        lr=args.lr if hasattr(args, 'lr') else 1e-4,
-        weight_decay=0.05
-    )
     src_model = src_model.to(args.device)
-    # Optional: Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=args.embedder_epochs/2
-    )
-    criterion = nn.CrossEntropyLoss(
-        label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
-    )
-    src_model.train()
-    set_grad_state(src_model.predictor, True)
-    print("trainabel params count :  ",count_trainable_params(src_model))
-    print("trainable params: ")  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
-    #print("model architechture: ", src_model)      
-    for epoch in range(args.embedder_epochs//2):
-        running_loss = 0.0 
-        correct = 0  
-        total = 0
-        for i, data in enumerate(src_train_loader):
-            x_, y_ = data 
-            x_ = x_.to(args.device)
-            y_ = y_.to(args.device)
-            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
-            optimizer.zero_grad()
-            out = src_model(x_)
-            loss = criterion(out, y_)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-            _, predicted = torch.max(out, 1)  # Get the index of max log-probability
-            total += y_.size(0)
-            correct += (predicted == y_).sum().item()
-        
-        scheduler.step()
-        accuracy = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{args.embedder_epochs//2}], '
-              f'Average Loss: {running_loss/len(src_train_loader):.4f}'
-              f' Accuracy: {accuracy:.2f}%')  
-        
-        
-    """
-    #### extract body model and predictor from model   
-    predictor = src_model.predictor
-    body_model = src_model.model.swin  # Swin Transformer backbone
-    embeddings = src_model.model.swin.embeddings
-    """
+   
     ##### set output_raw 
     src_model.output_raw = True
     src_model.eval()
@@ -375,9 +321,46 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
     ##### clearn cache
     del src_ys, src_feats, src_train_loader
     torch.cuda.empty_cache()
+    ###### get pre-trained pridictor
+    src_model.predictor = get_top_k_predictor_2Dmodel(source_classes)
     ##### return src_model and src_train_dataset         
     return src_model, src_train_dataset
     
+###############################################################################################################################################
+def get_top_k_predictor_2Dmodel(k=1000):
+    # Load pre-trained Swin model (ImageNet-22K)
+    arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+    output_dim = 1024  # Swin Base hidden size
+    model = SwinForImageClassification.from_pretrained(arch_name)
+
+    # Extract the original classifier (21K classes)
+    old_classifier = model.classifier  # Linear(1024, 21843)
+    
+    # Copy weight from the top K classes
+    old_weights = old_classifier.weight.data  # Shape: (21843, 1024)
+    new_weights = old_weights[:k, :].clone()  # Shape: (k, 1024), use `.clone()` to avoid modifying the original tensor
+
+    # Copy bias if it exists
+    if old_classifier.bias is not None:
+        new_bias = old_classifier.bias.data[:k].clone()  # Shape: (k,)
+    else:
+        new_bias = None
+
+    # Create a new classifier with K classes
+    new_classifier = nn.Linear(output_dim, k)
+
+    # Copy weights & bias safely
+    with torch.no_grad():
+        new_classifier.weight.copy_(new_weights)
+        if new_bias is not None:
+            new_classifier.bias.copy_(new_bias)
+
+    # Free memory properly
+    del model  
+    torch.cuda.empty_cache()  # Optional: Clear GPU memory if needed
+
+    return new_classifier
+        
 
 ##############################################################################################################################################
 def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
@@ -469,7 +452,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
     return tgt_model
 ###############################################################################################################################################    
-def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes):
+def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, src_num_classes):
     """
     Label matching by minimize -H(Y_t| Y_s): 
       + Generate dummy label for target data.
@@ -547,7 +530,7 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes):
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
                    dummy_label = []

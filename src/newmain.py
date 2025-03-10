@@ -71,15 +71,16 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     if Roberta is not True: 
         print("2D task...")
     ######### config for testing 
-        args.embedder_epochs = 10  
+        args.embedder_epochs = 10
+        src_num_classes = 100  
     ######### get src_model and src_feature
-        src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,loss)
+        src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,src_num_classes)
     
     ######### feature matching for tgt_model.
         tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
         del src_train_dataset
     ######### label matching for src_model.
-        src_model = label_matching_src_2Dmodel(args,root, src_model, tgt_model.embedder, num_classes)
+        src_model = label_matching_src_2Dmodel(args,root, src_model, tgt_model.embedder, num_classes, src_num_classes)
     ######### fine-tune all tgt_model after feature-label matching.
         print("Init tgt_model backbone by src_model...")
         tgt_model.model.swin = src_model.model.swin
@@ -94,7 +95,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
         del src_train_dataset
         ########## label matching for 1D task
-
+        
 
 
 
