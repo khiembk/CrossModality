@@ -481,8 +481,8 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     ##### check src_model
     src_model.embedder = tgt_embedder
     src_model.model.swin.embeddings = src_model.embedder
-    set_grad_state(src_model.embedder, True)
     set_grad_state(src_model.model, True)
+    set_grad_state(src_model.embedder, False) #86753474
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
     src_model.output_raw = False
@@ -508,22 +508,22 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
     ####### train with dummy label 
     print("Training with dummy label...")
     ###### config for testing
-    label_matching_ep = 5
-    max_sample = 4
+    label_matching_ep = 20
+    max_sample = 24
     total_losses, times, stats = [], [], []
     ###### begin training with dummy label
-    for ep in range(label_matching_ep):
-        total_loss = 0    
-        time_start = default_timer()
-        shuffled_loader = torch.utils.data.DataLoader(
+    shuffled_loader = torch.utils.data.DataLoader(
                 tgt_train_loader.dataset,
                 batch_size=tgt_train_loader.batch_size,
                 shuffle=True,  # Enable shuffling to permute the order
                 num_workers=tgt_train_loader.num_workers,
                 pin_memory=tgt_train_loader.pin_memory)
-        
-        dummy_probabilities = []        
-        dummy_labels = []
+    
+    for ep in range(label_matching_ep):
+        total_loss = 0    
+        time_start = default_timer()    
+        dummy_label = []
+        dummy_probability = []
         target_label = []   
         datanum = 0 
         for j, data in enumerate(shuffled_loader):
@@ -537,19 +537,22 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
                y = y.to(args.device)
                out = src_model(x)
                out = F.softmax(out, dim=-1)
-               dummy_prob, dummy_predict = torch.max(out, 1)
-               dummy_labels.append(dummy_predict)
-               dummy_probabilities.append(dummy_prob)
+               probability, predicted = torch.max(out, 1) 
+               dummy_label.append(predicted)
+               dummy_probability.append(probability)
                target_label.append(y)
                datanum += x.shape[0] 
                if datanum == max_sample:
                    datanum = 0
-                   loss = CE_loss(dummy_labels,dummy_probabilities ,target_label,10,num_classes_new)
+                   dummy_labels_tensor = torch.cat(dummy_label, dim=0)
+                   dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
+                   target_label_tensor = torch.cat(target_label, dim=0)
+                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
-                   dummy_labels = []
-                   dummy_probabilities = []
+                   dummy_label = []
                    target_label = []
+                   dummy_probability = []
         
         time_end = default_timer()  
         times.append(time_end - time_start) 
@@ -565,15 +568,15 @@ def label_matching_src_model(args,root, src_model, tgt_embedder, num_classes):
             
     return src_model  
 
-def CE_loss(dummy_labels,dummy_probs, target_label, src_num_classes, tgt_num_classes):
+def CE_loss(dummy_labels,dummy_probs , target_label, src_num_classes, tgt_num_classes):
     """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
 
     Args:
-        dummy_labels (_type_).
-        dummy_probs (_type_).
-        target_label (_type_).
-        src_num_classes (_type_).
-        tgt_num_classes (_type_).
+        dummy_label (_type_).
+        dummy_probability (_type_).
+        target_label (_type_): list of target label.
+        src_num_classes (_type_): number of src classes.
+        tgt_num_classes (_type_): number of tgt classes.
 
     Returns:
         tensor : -H(Y_t| Y_s)
@@ -589,15 +592,17 @@ def CE_loss(dummy_labels,dummy_probs, target_label, src_num_classes, tgt_num_cla
     observed_src_classes = torch.unique(dummy_labels)  # e.g., [0, 1]
     observed_tgt_classes = torch.unique(target_label)
     
-    P_full = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32, requires_grad=True)  # [3, 9]
+    P_temp = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
     
-    # Manually accumulate dummy_probs into P
+    # Manually accumulate dummy_probs into P_temp
     batch_size = dummy_labels.size(0)
     for i in range(batch_size):
-        src_idx = dummy_labels[i]  # e.g., 0, 1, 0
-        tgt_idx = target_label[i]  # e.g., 2, 3, 2
-        P_full[src_idx, tgt_idx] = P_full[src_idx, tgt_idx] + dummy_probs[i]  # Add prob to P[src_idx][tgt_idx]
+        src_idx = dummy_labels[i]
+        tgt_idx = target_label[i]
+        P_temp[src_idx, tgt_idx] += dummy_probs[i]  # In-place on P_temp (no grad)
 
+    # Create P_full with gradients, using P_temp as the initial value
+    P_full = P_temp.clone().requires_grad_(True)
     # Filter P to observed classes only
     P = P_full[observed_src_classes][:, observed_tgt_classes]
     # Compute marginal probability p(dummy_label) over observed target classes
@@ -626,10 +631,91 @@ def CE_loss(dummy_labels,dummy_probs, target_label, src_num_classes, tgt_num_cla
         loss = torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
 
     return loss  
-    
-    
 #########################################################################################################################################################################
+def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, tgt_num_classes):
+    """ Compute weighted negative conditional entropy -H(Y_t | Y_s) over observed target classes.
 
+    Args:
+        dummy_labels: Tensor [batch_size], predicted source labels (e.g., [0, 1, 0])
+        dummy_probs: Tensor [batch_size], probabilities for dummy_labels (e.g., [0.9, 0.8, 0.7])
+        target_label: Tensor [batch_size], true target labels (e.g., [0, 1, 0])
+        src_num_classes: int, number of source classes (e.g., 3)
+        tgt_num_classes: int, number of target classes (e.g., 2 or more)
+
+    Returns:
+        torch.Tensor: Weighted -H(Y_t | Y_s)
+    """
+    # Handle case where dummy_probs is a list (safety check)
+    if isinstance(dummy_probs, list):
+        dummy_probs = torch.cat(dummy_probs, dim=0)
+
+    # Ensure tensors are on the same device and detach labels
+    device = dummy_probs.device
+    dummy_labels = dummy_labels.to(device).detach()  # Shape: [batch_size], e.g., [3]
+    target_label = target_label.to(device).detach()  # Shape: [batch_size], e.g., [3]
+    dummy_probs = dummy_probs.to(device)  # Shape: [batch_size], e.g., [3]
+
+    # Get unique observed classes in this batch
+    observed_src_classes = torch.unique(dummy_labels)  # e.g., [0, 1]
+    observed_tgt_classes = torch.unique(target_label)  # e.g., [0, 1]
+    
+    # Initialize temporary accumulation tensor without gradients
+    P_temp = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
+    
+    # Manually accumulate dummy_probs into P_temp
+    batch_size = dummy_labels.size(0)
+    for i in range(batch_size):
+        src_idx = dummy_labels[i]  # e.g., 0, 1, 0
+        tgt_idx = target_label[i]  # e.g., 0, 1, 0
+        P_temp[src_idx, tgt_idx] += dummy_probs[i]  # Add prob to P[src_idx][tgt_idx]
+
+    # Create P_full with gradients
+    P_full = P_temp.clone().requires_grad_(True)  # Shape: [3, tgt_num_classes], e.g., [3, 2]
+
+    # Filter P to observed classes
+    P = P_full[observed_src_classes][:, observed_tgt_classes]  # Shape: [num_observed_src, num_observed_tgt], e.g., [2, 2]
+
+    # Compute marginal probability p(dummy_label) over observed target classes
+    marginal_p = P.sum(dim=1)  # Shape: [num_observed_src], e.g., [2]
+
+    # Avoid division by zero
+    valid_src_mask = marginal_p > 0
+    marginal_p_safe = marginal_p[valid_src_mask]  # Shape: [num_valid_src]
+
+    if marginal_p_safe.numel() == 0:
+        return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
+
+    # Filter P to valid source classes
+    P_filtered = P[valid_src_mask]  # Shape: [num_valid_src, num_observed_tgt], e.g., [2, 2]
+
+    # Compute conditional probability p(target_label | dummy_label)
+    P_cond = P_filtered / marginal_p_safe.unsqueeze(1)  # Shape: [num_valid_src, num_observed_tgt], e.g., [2, 2]
+
+    # Compute loss: sum(-log(p(target_label | Y_s))) weighted by number of samples per target class
+    loss = 0.0
+    for tgt_class in observed_tgt_classes:
+        # Number of samples with this target class
+        num_samples = (target_label == tgt_class).sum().item()  # e.g., 2 for tgt=0, 1 for tgt=1
+        
+        # Indices in observed_tgt_classes where this target class appears
+        tgt_idx = (observed_tgt_classes == tgt_class).nonzero(as_tuple=True)[0]  # Index of tgt_class in observed_tgt_classes
+        
+        # Conditional probabilities for this target class
+        P_cond_tgt = P_cond[:, tgt_idx]  # Shape: [num_valid_src, 1], e.g., [2, 1]
+        
+        # Mask to avoid log(0)
+        mask = P_filtered[:, tgt_idx] > 0  # Shape: [num_valid_src, 1]
+        P_cond_safe = P_cond_tgt[mask]  # Shape: [num_valid_elements]
+        
+        if P_cond_safe.numel() > 0:
+            # Weighted contribution: num_samples * sum(-log(p(target_label=tgt_class | Y_s)))
+            loss += num_samples * (-torch.log(P_cond_safe).sum())
+
+    if loss == 0.0:  # If no valid probabilities were found
+        return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
+
+    return loss
+#########################################################################################################################################################################
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
     
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
