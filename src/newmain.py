@@ -72,7 +72,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         print("2D task...")
     ######### config for testing 
         args.embedder_epochs = 10
-        src_num_classes = 100  
+        src_num_classes = 10  
     ######### get src_model and src_feature
         src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,src_num_classes)
     

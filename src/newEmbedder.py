@@ -284,7 +284,7 @@ class Embeddings1D(nn.Module):
 
 
 #########################################################################################################################################################################
-def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_classes = 1000):
+def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_classes = 10):
     ###################################### train predictor 
     """
     get train model and feature: 
@@ -297,7 +297,52 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
     print("num class: ", num_classes)    
     src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
     src_model = src_model.to(args.device)
-   
+    src_model.output_raw = False
+    optimizer = optim.AdamW(
+         src_model.parameters(),
+         lr=args.lr if hasattr(args, 'lr') else 1e-4,
+         weight_decay=0.05
+     )
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+         optimizer,
+         T_max=args.embedder_epochs/2
+     )
+    criterion = nn.CrossEntropyLoss(
+         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
+     )
+    src_model.train()
+    set_grad_state(src_model.predictor, True)
+    print("trainabel params count :  ",count_trainable_params(src_model))
+    print("trainable params: ")  
+    for name, param in src_model.named_parameters():
+       if param.requires_grad:
+          print(name)
+     #print("model architechture: ", src_model)      
+    for epoch in range(args.embedder_epochs//2):
+        running_loss = 0.0 
+        correct = 0  
+        total = 0
+        for i, data in enumerate(src_train_loader):
+             x_, y_ = data 
+             x_ = x_.to(args.device)
+             y_ = y_.to(args.device)
+             x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+             optimizer.zero_grad()
+             out = src_model(x_)
+             loss = criterion(out, y_)
+             loss.backward()
+             optimizer.step()
+             running_loss += loss.item()
+             _, predicted = torch.max(out, 1)  # Get the index of max log-probability
+             total += y_.size(0)
+             correct += (predicted == y_).sum().item()
+         
+        scheduler.step()
+        accuracy = 100. * correct / total
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs//2}], '
+               f'Average Loss: {running_loss/len(src_train_loader):.4f}'
+               f' Accuracy: {accuracy:.2f}%')  
+         
     ##### set output_raw 
     src_model.output_raw = True
     src_model.eval()
@@ -322,7 +367,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
     del src_ys, src_feats, src_train_loader
     torch.cuda.empty_cache()
     ###### get pre-trained pridictor
-    src_model.predictor = get_top_k_predictor_2Dmodel(source_classes)
+    #src_model.predictor = get_top_k_predictor_2Dmodel(source_classes)
     ##### return src_model and src_train_dataset         
     return src_model, src_train_dataset
     
