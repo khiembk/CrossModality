@@ -11,7 +11,7 @@ import yaml
 from types import SimpleNamespace
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable, set_grad_state
 from utils import count_params, count_trainable_params, calculate_stats
-from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_2Dmodel,label_matching_src_2Dmodel
+from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,label_matching_src_2Dmodel, get_src_train_dataset_1Dmodel
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
@@ -64,7 +64,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     ####### determind type of backbone
     Roberta = True if len(sample_shape) == 3 else False
     wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
-
+    ########## init tgt_model
+    tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
+    tgt_model = tgt_model.to(args.device).train()
 
     if Roberta is not True: 
         print("2D task...")
@@ -73,13 +75,8 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     ######### get src_model and src_feature
         src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,loss)
     
-    ########## init tgt_model
-    
-        tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
-        tgt_model = tgt_model.to(args.device).train()
-    
     ######### feature matching for tgt_model.
-        tgt_model = feature_matching_tgt_2Dmodel(args,root, tgt_model,src_train_dataset)
+        tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
         del src_train_dataset
     ######### label matching for src_model.
         src_model = label_matching_src_2Dmodel(args,root, src_model, tgt_model.embedder, num_classes)
@@ -91,8 +88,14 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         set_grad_state(tgt_model.embedder, True)
     else:
         print("1D task...")
-    
-        
+        #### get source train dataset 
+        src_train_dataset = get_src_train_dataset_1Dmodel(args,root)
+        ########### feature matching for target model.
+        tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
+        del src_train_dataset
+        ########## label matching for 1D task
+
+
 
 
     ######### load tgt dataset 

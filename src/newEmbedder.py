@@ -380,7 +380,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, loss):
     
 
 ##############################################################################################################################################
-def feature_matching_tgt_2Dmodel(args,root , tgt_model, src_train_dataset):
+def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
     """
     Embedder training using optimal transport to minimize source and target feture distribution: 
       + Early implement using OTDD
@@ -716,19 +716,20 @@ def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, t
 
     return loss
 #########################################################################################################################################################################
-def feature_matching_tgt_1Dmodel(args,root , tgt_model, src_train_dataset):
+def get_src_train_dataset_1Dmodel(args,root):
     """
-    Feature matching with 1D task:
-      + Early implement using OTDD
-      + Feature work using Total Variance distance 
-      + return tgt_model
+    get source train dataset with backbone Roberta: 
+       + return source train dataset.
     """
+    
     ####### load src train dataset.
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
-    
-    src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-    return 0
+    zero_labels = torch.zeros_like(src_ys)
+    del src_ys
+    src_train_dataset = torch.utils.data.TensorDataset(src_feats, zero_labels)
+    return src_train_dataset
+
 #########################################################################################################################################################################
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
     
