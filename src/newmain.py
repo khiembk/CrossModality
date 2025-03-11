@@ -99,7 +99,13 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         src_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
         src_model.predictor = get_src_predictor1D(args,root)
         src_model = label_matching_src_1Dmodel(args, root, src_model, tgt_model.embedder, num_classes, 9)
-
+        ####################################################################################
+        #Init tgt body model
+        tgt_model.model.encoder = src_model.model.encoder
+        del src_model
+        set_grad_state(tgt_model.model, True)
+        set_grad_state(tgt_model.embedder, True)
+        ######################################################
         
 
 
