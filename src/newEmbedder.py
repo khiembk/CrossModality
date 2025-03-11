@@ -131,7 +131,7 @@ class wrapper1D(torch.nn.Module):
 
         
         
-        modelname = 'roberta-base' if weight[:7] == 'roberta' else 'bert-base-uncased'
+        modelname = 'roberta-base' 
         configuration = AutoConfig.from_pretrained(modelname)
         if drop_out is not None:
             configuration.hidden_dropout_prob = drop_out
@@ -178,7 +178,7 @@ class wrapper1D(torch.nn.Module):
 
         if x.shape[1] == 1 and len(x.shape) == 2:
             x = x.squeeze(1)
-            
+
         return x
 
 
@@ -744,11 +744,13 @@ def get_src_train_dataset_1Dmodel(args,root):
     
     ####### load src train dataset.
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
-    src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
-    zero_labels = torch.zeros_like(src_ys)
-    del src_ys
-    src_train_dataset = torch.utils.data.TensorDataset(src_feats, zero_labels)
-    return src_train_dataset
+    shuffled_loader = torch.utils.data.DataLoader(
+                src_train_loader.dataset,
+                batch_size= 8,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=src_train_loader.num_workers,
+                pin_memory=src_train_loader.pin_memory)
+    return shuffled_loader
 
 #########################################################################################################################################################################
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
