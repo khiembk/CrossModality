@@ -9,7 +9,7 @@ hyperparameters:
     weight: roberta
     maxsamples: 64
     target_seq_len: 512
-
+    label_maxsamples: 16
     experiment_id: 0
     seed: 0
     epochs: 13

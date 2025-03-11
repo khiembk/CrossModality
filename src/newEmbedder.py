@@ -531,7 +531,7 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
     print("Training with dummy label...")
     ###### config for testing
     label_matching_ep = (args.epochs//10) + 1 
-    max_sample = 80
+    max_sample =  args.label_maxsamples
     total_losses, times, stats = [], [], []
     ###### begin training with dummy label
     shuffled_loader = torch.utils.data.DataLoader(
@@ -564,7 +564,11 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
                dummy_probability.append(probability)
                target_label.append(y)
                datanum += x.shape[0] 
+               #print("datanum: ", datanum)
+               #get_gpu_memory_usage()
                if datanum >= max_sample:
+                   #print("datanum when backward: ", datanum)
+                   #get_gpu_memory_usage()
                    datanum = 0
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
@@ -640,7 +644,7 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
     print("Training with dummy label...")
     ###### config for testing
     label_matching_ep = (args.epochs//10) + 1 
-    max_sample = 16
+    max_sample = args.label_maxsamples
     total_losses, times, stats = [], [], []
     ###### begin training with dummy label
     shuffled_loader = torch.utils.data.DataLoader(
@@ -673,11 +677,11 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
                dummy_probability.append(probability)
                target_label.append(y)
                datanum += x.shape[0]
-               #print("datanum: ", datanum)
-               #get_gpu_memory_usage() 
+               print("datanum: ", datanum)
+               get_gpu_memory_usage() 
                if datanum >= max_sample:
-                   #print("run backward: ")
-                   #get_gpu_memory_usage()
+                   print("run backward: ")
+                   get_gpu_memory_usage()
                    datanum = 0
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
