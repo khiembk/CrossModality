@@ -5,7 +5,6 @@ import torch.optim as optim
 import random
 import numpy as np
 from transformers import AutoModel, AutoTokenizer, Trainer, TrainingArguments
-from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForTokenClassification
 from transformers import AutoModelForTokenClassification
