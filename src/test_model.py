@@ -20,7 +20,7 @@ import torch.nn.functional as F
 
 
 class CustomRoberta(torch.nn.Module):
-    def __init__(self, input_shape, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
+    def __init__(self, output_shape, use_embedder=True, weight='roberta', train_epoch=0, activation=None, target_seq_len=512, drop_out=None, from_scratch=False):
         super().__init__()
 
         self.dense = False
@@ -58,9 +58,9 @@ class CustomRoberta(torch.nn.Module):
         if self.output_raw:
             return self.embedder(x) 
 
-        x = self.embedder(x)  
-        if x.dim() == 1:  # If shape is (hidden_size,)
-           x = x.unsqueeze(0).unsqueeze(0)
+        # x = self.embedder(x)  
+        # # if x.dim() == 1:  # If shape is (hidden_size,)
+        # #    x = x.unsqueeze(0).unsqueeze(0)
              
         x = self.model(inputs_embeds=x)['pooler_output']
         x = self.predictor(x)
@@ -70,36 +70,22 @@ class CustomRoberta(torch.nn.Module):
 
         return x
 
-def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None):
+def get_src_predictor1D(args,root):
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    #args.device = 'cuda' 
-    print("The current device is: ", args.device)
-    root = '/datasets' if use_determined else './datasets'
-    if (DatasetRoot != None):
-        root = DatasetRoot + '/datasets'
-
-    print("Path folder dataset: ",root) 
     torch.cuda.empty_cache()
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    random.seed(args.seed) 
-    torch.cuda.manual_seed_all(args.seed)
-    dims, sample_shape, num_classes, loss, args = get_config(root, args)
-    print("1D task...")
     src_num_classes = 9
     #### get source train dataset 
     print("load src model...")
-    src_train_loader = get_src_train_dataset_1Dmodel(args,root)
-    src_model = CustomRoberta(sample_shape, src_num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    src_model = CustomRoberta(src_num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
     #################### prepare for train
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    src_model.to(device)
+    src_model.to(args.device)
     src_model.train() 
     src_model.output_raw = False
     for name, param in src_model.named_parameters():
        if param.requires_grad:
           print(name)
-    print(src_model)      
+          
     
     num_epochs = 30
     optimizer = optim.AdamW(
@@ -116,13 +102,12 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
      )
     for epoch in range(num_epochs):
         running_loss = 0.0 
-        correct = 0  
-        total = 0
+        
         for i, data in enumerate(src_train_loader):
              x_, y_ = data 
              x_ = x_.to(args.device)
              y_ = y_.to(args.device)
-             y_ = y_.long() 
+             y_ = y_.long()
              optimizer.zero_grad()
              out = src_model(x_)
              out = F.softmax(out, dim=-1)
@@ -130,38 +115,18 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
              loss.backward()
              optimizer.step() 
              running_loss += loss.item()
-             _, predicted = torch.max(out, 1)  # Get the index of max log-probability
-             total += y_.size(0)
-             correct += (predicted == y_).sum().item()
+               # Get the index of max log-probability
+             
 
          
         scheduler.step()
-        accuracy = 100. * correct / total
+        
         print(f'Epoch [{epoch+1}/{num_epochs}], '
-               f'Average Loss: {running_loss/len(src_train_loader):.4f}'
-               f' Accuracy: {accuracy:.2f}%')  
+               f'Average Loss: {running_loss/len(src_train_loader):.4f}')  
 
+    ######### clean model and return 
+    src_predictor = src_model.predictor
+    del src_model, src_train_loader
+    return src_predictor
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='ORCA')
-    parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
-    parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
-    parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    
-    args = parser.parse_args()
-    embedder_ep = args.embedder_ep
-    root_dataset = args.root_dataset
-    log_folder = args.log_folder
-    if args.config is not None:     
-        import yaml
-        with open(args.config, 'r') as stream:
-            config = yaml.safe_load(stream)
-            args = SimpleNamespace(**config['hyperparameters'])
-            
-            if (embedder_ep != None): 
-                args.embedder_epochs = embedder_ep
-            if (args.embedder_epochs > 0):
-                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-                     
-            main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
+############################################################################################################################
