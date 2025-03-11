@@ -129,40 +129,31 @@ class wrapper1D(torch.nn.Module):
         if isinstance(output_shape, tuple):
             self.dense = True
 
-        if weight =='swin':
-            self.model = SwinForImageClassification.from_pretrained("microsoft/swin-base-patch4-window7-224-in22k") if not from_scratch else SwinForImageClassification()
-            self.model.pooler = nn.AdaptiveAvgPool1d(1)
-            self.model.classifier = nn.Identity() 
-
-        else:
-            modelname = 'roberta-base' if weight[:7] == 'roberta' else 'bert-base-uncased'
-            configuration = AutoConfig.from_pretrained(modelname)
-            if drop_out is not None:
-                configuration.hidden_dropout_prob = drop_out
-                configuration.attention_probs_dropout_prob = drop_out
-            self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
+        
+        
+        modelname = 'roberta-base' if weight[:7] == 'roberta' else 'bert-base-uncased'
+        configuration = AutoConfig.from_pretrained(modelname)
+        if drop_out is not None:
+            configuration.hidden_dropout_prob = drop_out
+            configuration.attention_probs_dropout_prob = drop_out
+        self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
 
         if use_embedder:
-            self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim=128 if weight == 'swin' else 768, target_seq_len=1024 if weight == 'swin' else target_seq_len, dense=self.dense)
-            embedder_init(self.model.swin.embeddings if weight == 'swin' else self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
+            self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim= 768, target_seq_len= target_seq_len, dense=self.dense)
+            embedder_init(self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
             self.embedder = nn.Identity()
 
-        if not weight == 'swin': 
-            self.model.embeddings = embedder_placeholder()
-            if self.dense:
-                self.model.pooler = nn.Identity()
-                self.predictor = adaptive_pooler(out_channel = output_shape[-2] * self.embedder.stack_num, output_shape=output_shape, dense=True)
-            else:
-                self.model.pooler = adaptive_pooler()
-                self.predictor = nn.Linear(in_features=768, out_features=output_shape)   
+        
+        self.model.embeddings = embedder_placeholder()
+        if self.dense:
+            self.model.pooler = nn.Identity()
+            self.predictor = adaptive_pooler(out_channel = output_shape[-2] * self.embedder.stack_num, output_shape=output_shape, dense=True)
         else:
-            self.model.swin.embeddings = self.embedder  
-            if self.dense:
-                self.predictor = adaptive_pooler(out_channel = output_shape[-2] * self.embedder.stack_num)
-            else:
-                self.predictor = nn.Linear(in_features=1024, out_features=output_shape)  
+            self.model.pooler = adaptive_pooler()
+            self.predictor = nn.Linear(in_features=768, out_features=output_shape)   
+        
 
         if activation == 'sigmoid':
             self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())  
@@ -172,13 +163,7 @@ class wrapper1D(torch.nn.Module):
 
 
     def forward(self, x):
-        if self.weight == 'swin':
-            if self.output_raw:
-                return self.model.swin.embeddings(x)[0]
-
-            x = self.model(x).logits
-            return self.predictor(x)
-
+        
         if self.output_raw:
             return self.embedder(x) 
 
@@ -193,7 +178,7 @@ class wrapper1D(torch.nn.Module):
 
         if x.shape[1] == 1 and len(x.shape) == 2:
             x = x.squeeze(1)
-
+            
         return x
 
 
