@@ -5,5 +5,5 @@ src/otdd/otdd.egg-info/PKG-INFO
 src/lora_p=4_DARCY-FLOW-5_all.log
 src/__pycache__/
 src/Log/
-src/test_model.py 
 src/DARCY-FLOW-5_allorca60.log
+src/DEEPSEA_allorca60.log

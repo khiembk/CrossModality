@@ -13,6 +13,9 @@ from task_configs import get_data, get_config, get_metric, get_optimizer_schedul
 from utils import count_params, count_trainable_params, calculate_stats
 from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,label_matching_src_2Dmodel, get_src_train_dataset_1Dmodel, label_matching_src_1Dmodel
 from test_model import get_src_predictor1D
+import wandb
+from datetime import datetime
+
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -26,7 +29,8 @@ def set_seed(seed: int = 42) -> None:
     print(f"Random seed set as {seed}")
 
 def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None):
-    set_seed()
+    #set_seed()
+    ############## Init log file and set seed
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
     print("The current device is: ", args.device)
@@ -55,7 +59,25 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         cudnn.benchmark = False
     else:
         cudnn.benchmark = True
+    ##################################################################################################
+    ##### Init wanDB
+    wandb.login(key= "87a17a462a0003e50590ec537dda9beacbcc2d63")
     
+    wandb.init(
+      # Set the project where this run will be logged
+      project="CrossModality",
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      name=f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+      # Track hyperparameters and run metadata
+      config={
+      "optimizer": args.optimizer,
+      "back_bone": args.weight,
+      "target_dataset": args.dataset,
+      "epochs": args.epochs,
+      "feature_matching:": args.embedder_epochs,
+      })
+    
+    #################### Load config 
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
     
     if load_embedder(use_determined, args):
@@ -174,6 +196,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
             "[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
             "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
              val_loss, val_score,compare_metrics(train_score))
+            wandb.log("[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
+            "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
+             val_loss, val_score,compare_metrics(train_score))
             if use_determined :
                 id_current = save_state(use_determined, args, context, tgt_model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 try:
@@ -223,7 +248,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         if use_determined and context.preempt.should_preempt():
             print("paused")
             return
-        
+
+   
+    wandb.finish()    
 
 
 
