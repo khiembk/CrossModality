@@ -677,11 +677,11 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
                dummy_probability.append(probability)
                target_label.append(y)
                datanum += x.shape[0]
-               print("datanum: ", datanum)
-               get_gpu_memory_usage() 
+            #    print("datanum: ", datanum)
+            #    get_gpu_memory_usage() 
                if datanum >= max_sample:
-                   print("run backward: ")
-                   get_gpu_memory_usage()
+                #    print("run backward: ")
+                #    get_gpu_memory_usage()
                    datanum = 0
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
