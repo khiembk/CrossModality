@@ -333,7 +333,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
          
         scheduler.step()
         accuracy = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{args.embedder_epochs//2}], '
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs//10}], '
                f'Average Loss: {running_loss/len(src_train_loader):.4f}'
                f' Accuracy: {accuracy:.2f}%')  
          
@@ -572,7 +572,7 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
+                   loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
                    optimizer.step()
@@ -586,7 +586,7 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
             dummy_labels_tensor = torch.cat(dummy_label, dim=0)
             dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
             target_label_tensor = torch.cat(target_label, dim=0)
-            loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+            loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
             loss.backward()
             total_loss += loss.item()
         ##############################
@@ -687,7 +687,7 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
+                   loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
@@ -703,7 +703,7 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
             dummy_labels_tensor = torch.cat(dummy_label, dim=0)
             dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
             target_label_tensor = torch.cat(target_label, dim=0)
-            loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+            loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
             loss.backward()
             total_loss += loss.item()
         ##############################
