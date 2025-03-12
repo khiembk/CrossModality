@@ -93,7 +93,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     if Roberta is not True: 
         print("2D task...")
     ######### config for testing 
-        args.embedder_epochs = 10
+        # args.embedder_epochs = 10
         src_num_classes = 10  
     ######### get src_model and src_feature
         src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,src_num_classes)
@@ -196,9 +196,14 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
             "[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
             "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
              val_loss, val_score,compare_metrics(train_score))
-            wandb.log("[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
-            "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
-             val_loss, val_score,compare_metrics(train_score))
+            wandb.log({
+            "epoch": ep,
+            "time_elapsed": train_time[-1],
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_score": val_score,
+            "best_val_score": compare_metrics(train_score)
+            })
             if use_determined :
                 id_current = save_state(use_determined, args, context, tgt_model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 try:

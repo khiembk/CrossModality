@@ -299,7 +299,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
      )
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
          optimizer,
-         T_max=args.embedder_epochs/2
+         T_max=args.embedder_epochs/10
      )
     criterion = nn.CrossEntropyLoss(
          label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0  # Optional smoothing
@@ -312,7 +312,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
        if param.requires_grad:
           print(name)
      #print("model architechture: ", src_model)      
-    for epoch in range(args.embedder_epochs//2):
+    for epoch in range(args.embedder_epochs//10):
         running_loss = 0.0 
         correct = 0  
         total = 0
@@ -569,11 +569,10 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
                if datanum >= max_sample:
                    #print("datanum when backward: ", datanum)
                    #get_gpu_memory_usage()
-                   datanum = 0
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
+                   loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
                    loss.backward()
                    total_loss += loss.item()
                    optimizer.step()
@@ -581,13 +580,15 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
                    dummy_label = []
                    target_label = []
                    dummy_probability = []
-        ###################### handle leftover dataset.             
-        dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-        dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-        target_label_tensor = torch.cat(target_label, dim=0)
-        loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
-        loss.backward()
-        total_loss += loss.item()
+                   datanum = 0
+        ###################### handle leftover dataset.
+        if (datanum >= max_sample//2):             
+            dummy_labels_tensor = torch.cat(dummy_label, dim=0)
+            dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
+            target_label_tensor = torch.cat(target_label, dim=0)
+            loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+            loss.backward()
+            total_loss += loss.item()
         ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 
@@ -682,11 +683,11 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
                if datanum >= max_sample:
                 #    print("run backward: ")
                 #    get_gpu_memory_usage()
-                   datanum = 0
+                   
                    dummy_labels_tensor = torch.cat(dummy_label, dim=0)
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                    target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (max_sample/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
+                   loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
@@ -694,15 +695,17 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
                    dummy_label = []
                    target_label = []
                    dummy_probability = []
+                   datanum = 0
                    #print("after grad")
                    #get_gpu_memory_usage()
-        ###################### handle leftover dataset.             
-        dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-        dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-        target_label_tensor = torch.cat(target_label, dim=0)
-        loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
-        loss.backward()
-        total_loss += loss.item()
+        ###################### handle leftover dataset. 
+        if (datanum >= max_sample//2):             
+            dummy_labels_tensor = torch.cat(dummy_label, dim=0)
+            dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
+            target_label_tensor = torch.cat(target_label, dim=0)
+            loss = (datanum/len(shuffled_loader))*CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
+            loss.backward()
+            total_loss += loss.item()
         ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 

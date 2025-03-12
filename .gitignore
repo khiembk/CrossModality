@@ -7,3 +7,4 @@ src/__pycache__/
 src/Log/
 src/DARCY-FLOW-5_allorca60.log
 src/DEEPSEA_allorca60.log
+src/wandb/
