@@ -13,6 +13,8 @@ from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy, tqdm
 from utils import count_params, count_trainable_params, calculate_stats
+from TotalVarianceDistance import OptimalTV,estimate_tv_distance_hist
+
 def total_variance_distance(p, q):
     """
     Compute the Total Variance Distance (TVD) between two distributions p and q.
@@ -463,6 +465,9 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
     
     #### init score function 
     score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+    ##### Test for new test function
+    # src_feature =  src_train_dataset.tensors[0].numpy()
+    # new_score_func = partial(OptimalTV, sample1 = src_feature)
     ##### get optimizer
     args, tgt_model, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
     tgt_model_optimizer.zero_grad()
@@ -504,6 +509,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
         feats = torch.cat(feats, 0).mean(1)
         if feats.shape[0] > 1:
+            #feats_np = feats.numpy()
             loss = (len(feats)/len(tgt_train_loader))*score_func(feats)
             loss.backward()
             total_loss += loss.item()
