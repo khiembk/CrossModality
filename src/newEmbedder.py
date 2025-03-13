@@ -42,7 +42,42 @@ def compute_distribution(z, bins=10, range=(0, 1)):
     dist = hist / torch.sum(hist)  # Normalize to get a probability distribution
     return dist
 
-
+def estimate_tv_distance_hist(samples1, samples2, bins=50):
+    """
+    Estimate Total Variation distance between two distributions using histograms.
+    
+    Args:
+        samples1: Array of shape (n_samples, n_dims) from p1
+        samples2: Array of shape (n_samples, n_dims) from p2
+        bins: Number of bins per dimension (or a list for different bin counts per dimension)
+    
+    Returns:
+        float: Estimated TV distance
+    """
+    # Ensure samples are numpy arrays
+    samples1 = np.asarray(samples1)
+    samples2 = np.asarray(samples2)
+    
+    # Check dimensions
+    assert samples1.shape[1] == samples2.shape[1], "Sample dimensions must match"
+    n_dims = samples1.shape[1]
+    
+    # Compute histograms (normalized to form probability distributions)
+    if n_dims == 1:
+        hist1, edges = np.histogram(samples1, bins=bins, density=True)
+        hist2, _ = np.histogram(samples2, bins=edges, density=True)
+    else:
+        # For multidimensional data, use np.histogramdd
+        hist_range = [[min(np.min(samples1[:, i]), np.min(samples2[:, i])), 
+                       max(np.max(samples1[:, i]), np.max(samples2[:, i]))] 
+                      for i in range(n_dims)]
+        hist1, edges = np.histogramdd(samples1, bins=bins, range=hist_range, density=True)
+        hist2, _ = np.histogramdd(samples2, bins=bins, range=hist_range, density=True)
+    
+    # Compute TV distance
+    tv_distance = 0.5 * np.sum(np.abs(hist1 - hist2))
+    
+    return tv_distance
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
     ys = torch.zeros(len(feats)) if ys is None else ys
