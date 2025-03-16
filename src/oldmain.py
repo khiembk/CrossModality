@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler
 from utils import count_params, count_trainable_params, calculate_stats
 from embedder import get_tgt_model
-
+import wandb
+from datetime import datetime
 
 def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_folder = None):
 
@@ -36,7 +37,25 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
-
+    ##################################################################################################
+    ##### Init wanDB
+    wandb.login(key= "87a17a462a0003e50590ec537dda9beacbcc2d63")
+    
+    wandb.init(
+      # Set the project where this run will be logged
+      project="CrossModality",
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      name=f"ORCA_baseline_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+      # Track hyperparameters and run metadata
+      config={
+      "optimizer": args.optimizer,
+      "back_bone": args.weight,
+      "target_dataset": args.dataset,
+      "epochs": args.epochs,
+      "feature_matching:": args.embedder_epochs,
+      })
+    
+    #################### Load config 
     if args.reproducibility:
         cudnn.deterministic = True
         cudnn.benchmark = False
@@ -104,7 +123,14 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
             train_time.append(train_time_ep)
 
             print("[train", "full" if ep >= args.predictor_epochs else "predictor", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
-
+            wandb.log({
+            "epoch": ep,
+            "time_elapsed": train_time[-1],
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "val_score": val_score,
+            "best_val_score": compare_metrics(train_score)
+            })
             if use_determined:
                 id_current = save_state(use_determined, args, context, model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 try:
@@ -150,6 +176,9 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
         if use_determined and context.preempt.should_preempt():
             print("paused")
             return
+    
+    
+    wandb.finish()    
 
 
 def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
