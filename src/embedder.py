@@ -72,8 +72,8 @@ class wrapper2D(torch.nn.Module):
             self.pool = nn.AdaptiveAvgPool2d(input_shape[-2:])
             self.predictor = nn.Sequential(self.pool_seq_dim, self.pool)
 
-        set_grad_state(self.model, False)
-        set_grad_state(self.predictor, False)
+        # set_grad_state(self.model, False)
+        # set_grad_state(self.predictor, False)
 
         if use_embedder:
             self.embedder = Embeddings2D(input_shape, patch_size=patch_size, config=self.model.config, embed_dim=embed_dim, img_size=img_size)
@@ -141,8 +141,8 @@ class wrapper1D(torch.nn.Module):
         if activation == 'sigmoid':
             self.predictor = nn.Sequential(self.predictor, nn.Sigmoid())  
             
-        set_grad_state(self.model, False)
-        set_grad_state(self.predictor, False)
+        # set_grad_state(self.model, False)
+        # set_grad_state(self.predictor, False)
 
 
     def forward(self, x):
