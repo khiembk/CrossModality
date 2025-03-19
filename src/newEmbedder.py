@@ -761,70 +761,7 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
 
             
     return src_model  
-####################################################################################################################################################################################
-def CE_loss(dummy_labels,dummy_probs , target_label, src_num_classes, tgt_num_classes):
-    """ Compute negative conditional entropy between target label and source label -H(Y_t| Y_s).
 
-    Args:
-        dummy_label (_type_).
-        dummy_probability (_type_).
-        target_label (_type_): list of target label.
-        src_num_classes (_type_): number of src classes.
-        tgt_num_classes (_type_): number of tgt classes.
-
-    Returns:
-        tensor : -H(Y_t| Y_s)
-    """
-    
-    device = dummy_probs.device
-    dummy_labels = dummy_labels.to(device).detach()  # No gradients for indices
-    target_label = target_label.to(device).detach()
-    dummy_probs = dummy_probs.to(device)
-    
-    ##### get observed classes 
-    # Get unique observed classes in this batch
-    observed_src_classes = torch.unique(dummy_labels)  # e.g., [0, 1]
-    observed_tgt_classes = torch.unique(target_label)
-    
-    P_temp = torch.zeros(src_num_classes, tgt_num_classes, device=device, dtype=torch.float32)
-    
-    # Manually accumulate dummy_probs into P_temp
-    batch_size = dummy_labels.size(0)
-    for i in range(batch_size):
-        src_idx = dummy_labels[i]
-        tgt_idx = target_label[i]
-        P_temp[src_idx, tgt_idx] += dummy_probs[i]  # In-place on P_temp (no grad)
-
-    # Create P_full with gradients, using P_temp as the initial value
-    P_full = P_temp.clone().requires_grad_(True)
-    # Filter P to observed classes only
-    P = P_full[observed_src_classes][:, observed_tgt_classes]
-    # Compute marginal probability p(dummy_label) over observed target classes
-    marginal_p = P.sum(dim=1)  # Shape: [num_observed_src], e.g., [2]
-
-    # Avoid division by zero
-    valid_src_mask = marginal_p > 0  # Shape: [num_observed_src]
-    marginal_p_safe = marginal_p[valid_src_mask]  # Shape: [num_valid_src]
-
-    if marginal_p_safe.numel() == 0:
-        return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
-
-    # Filter P to valid source classes
-    P_filtered = P[valid_src_mask]  # Shape: [num_valid_src, num_observed_tgt]
-
-    # Compute conditional probability p(target_label | dummy_label)
-    P_cond = P_filtered / marginal_p_safe.unsqueeze(1)  # Shape: [num_valid_src, num_observed_tgt]
-
-    # Mask to avoid log(0)
-    mask = P_filtered > 0  # Shape: [num_valid_src, num_observed_tgt]
-    P_cond_safe = P_cond[mask]  # Shape: [num_valid_elements]
-
-    if P_cond_safe.numel() > 0:
-        loss = -torch.log(P_cond_safe).sum()
-    else:
-        loss = torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
-
-    return loss  
 #########################################################################################################################################################################
 def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, tgt_num_classes):
     """ Compute weighted negative conditional entropy -H(Y_t | Y_s) over observed target classes.
@@ -909,6 +846,26 @@ def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, t
         return torch.tensor(0.0, device=device, requires_grad=dummy_probs.requires_grad)
 
     return loss
+###############################################################################################################################################################
+def Entropy_loss(dummy_probs, epxilon = 1e-10):
+    """
+    Return entropy loss given dummy label and dummpy prob.
+    Args:
+        dummy_probs: Tensor [batch_size], probabilities for dummy_labels (e.g., [0.9, 0.8, 0.7])
+       
+    Return H(Y^s)
+    """
+    dummy_probs = dummy_probs.to(dtype=torch.float32)
+    
+    # Calculate mean probabilities across batch dimension (dim=0)
+    P = torch.mean(dummy_probs, dim=0)
+    
+    # Calculate entropy: -∑(p * log(p))
+    # Adding small epsilon (1e-10) to avoid log(0)
+    entropy = -torch.sum(P * torch.log(P + epxilon))
+    
+    return entropy
+
 #########################################################################################################################################################################
 def get_src_train_dataset_1Dmodel(args,root):
     """
