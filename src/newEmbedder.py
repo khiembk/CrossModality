@@ -642,7 +642,8 @@ def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, 
         scheduler.step()
         optimizer.zero_grad()           
 
-            
+    ####delete trash
+    del tgt_train_loader          
     return src_model  
 ####################################################################################################################################################################################
 def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,src_num_classes):
@@ -658,7 +659,7 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
     src_model.embedder = tgt_embedder
     
     set_grad_state(src_model.model, True)
-    set_grad_state(src_model.embedder, False) #86753474
+    set_grad_state(src_model.embedder, False)
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
     src_model.output_raw = False
@@ -758,8 +759,9 @@ def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,s
         optimizer.step()
         scheduler.step()
         optimizer.zero_grad()           
-
-            
+    ####delete trash
+    del tgt_train_loader   
+         
     return src_model  
 
 #########################################################################################################################################################################
@@ -856,7 +858,7 @@ def Entropy_loss(dummy_probs, epxilon = 1e-10):
     Return H(Y^s)
     """
     dummy_probs = dummy_probs.to(dtype=torch.float32)
-    
+    # 
     # Calculate mean probabilities across batch dimension (dim=0)
     P = torch.mean(dummy_probs, dim=0)
     
@@ -865,7 +867,120 @@ def Entropy_loss(dummy_probs, epxilon = 1e-10):
     entropy = -torch.sum(P * torch.log(P + epxilon))
     
     return entropy
+###################################################################################################################################################
+def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes):
+    """ Label matching by minimize src entrpy each classes sum -H(Y^S|Y^T = y^t)
 
+    Args:
+        args (_type_): _description_
+        root (_type_): path to dataset 
+        src_model (_type_): _description_
+        tgt_embedder (_type_): _description_
+        num_classes (_type_): _description_
+        src_num_classes (_type_): _description_
+
+    Returns:
+        loss_value : sum -H(Y^S|Y^T = y^t)
+    """
+    print("[Entropy] label matching with src model...")
+    ##### check src_model set trainable params
+    src_model.embedder = tgt_embedder
+    set_grad_state(src_model.model, True)
+    set_grad_state(src_model.embedder, False)
+    print("trainabel params count :  ",count_trainable_params(src_model))
+    print("trainable params: ")
+    src_model.output_raw = False
+    src_model = src_model.to(args.device).train()  
+    for name, param in src_model.named_parameters():
+      if param.requires_grad:
+         print(name)
+         
+    ##### load tgt dataset
+    print(src_model)
+    print("load tgt dataset...")
+    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+    print("infer label...")
+    if args.infer_label:
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+        
+    else: 
+        num_classes_new = num_classes
+        
+    print("load target dataset by classes...")
+    tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
+    
+    ####### get optimizer
+    args, src_model, optimizer, scheduler = get_optimizer_scheduler(args, src_model, module=None, n_train=n_train)
+    optimizer.zero_grad()         
+    ####### train with dummy label 
+    print("Training with dummy label...")
+    ###### config for testing
+    label_matching_ep = (args.epochs//10) + 1 
+    max_sample = args.label_maxsamples
+    total_losses, times, stats = [], [], []
+   
+    
+    for ep in range(label_matching_ep):
+        total_loss = 0    
+        time_start = default_timer()    
+        
+        for i in np.random.permutation(num_classes_new):
+            
+            datanum = 0
+            dummy_probability = []
+            for j, data in enumerate(tgt_train_loaders[i]):
+                
+               if transform is not None:
+                  x, y, z = data
+               else:
+                  x, y = data 
+                
+               x = x.to(args.device)
+               y = y.to(args.device)
+               out = src_model(x)
+               out = F.softmax(out, dim=-1)
+               dummy_probability.append(out)
+               datanum += x.shape[0]
+            #    print("datanum: ", datanum)
+            #    get_gpu_memory_usage() 
+               if datanum >= max_sample:
+                #    print("run backward: ")
+                #    get_gpu_memory_usage()
+                   dummy_probs_tensor = torch.cat(dummy_probability, dim=0)
+                   loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
+                   loss.backward()
+                   optimizer.step()
+                   optimizer.zero_grad()
+                   total_loss += loss.item()
+                   dummy_probability = []
+                   datanum = 0
+                   #print("after grad")
+                   #get_gpu_memory_usage()
+        ###################### handle leftover dataset. 
+            if (datanum >= max_sample//2):             
+                dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
+                loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
+                loss.backward()
+                total_loss += loss.item()
+                optimizer.step()
+                optimizer.zero_grad()
+        ##############################
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
+
+        total_losses.append(total_loss)
+        stats.append([total_losses[-1], times[-1]])
+        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
+
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()           
+
+    ### delete trash
+    del tgt_train_loader,tgt_train_loaders        
+    return src_model  
+    
 #########################################################################################################################################################################
 def get_src_train_dataset_1Dmodel(args,root):
     """
