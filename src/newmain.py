@@ -11,7 +11,7 @@ import yaml
 from types import SimpleNamespace
 from task_configs import get_data, get_config, get_metric, get_optimizer_scheduler, set_trainable, set_grad_state
 from utils import count_params, count_trainable_params, calculate_stats
-from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,label_matching_src_2Dmodel, get_src_train_dataset_1Dmodel, label_matching_src_1Dmodel
+from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,get_src_train_dataset_1Dmodel
 from test_model import get_src_predictor1D
 import wandb
 from datetime import datetime

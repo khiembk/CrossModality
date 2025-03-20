@@ -532,237 +532,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
     return tgt_model
 ###############################################################################################################################################    
-def label_matching_src_2Dmodel(args,root, src_model, tgt_embedder, num_classes, src_num_classes):
-    """
-    Label matching by minimize H(Y_t| Y_s): 
-      + Generate dummy label for target data.
-      + Compute emperical P(Y_t| Y_s).
-      + Minimize H(Y_t| Y_s)
-      + Return src_model without predictor
-    """  
-    print("label matching with src model...")
-    ##### check src_model
-    src_model.embedder = tgt_embedder
-    src_model.model.swin.embeddings = src_model.embedder
-    set_grad_state(src_model.model, True)
-    set_grad_state(src_model.embedder, False) #86753474
-    print("trainabel params count :  ",count_trainable_params(src_model))
-    print("trainable params: ")
-    src_model.output_raw = False
-    src_model = src_model.to(args.device).train()  
-    # for name, param in src_model.named_parameters():
-    #   if param.requires_grad:
-    #      print(name)
-         
-    ##### load tgt dataset
-    print("load tgt dataset...")
-    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
-    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    print("infer label...")
-    if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
-        
-    else: 
-        num_classes_new = num_classes
-    
-    ####### get optimizer
-    args, src_model, optimizer, scheduler = get_optimizer_scheduler(args, src_model, module=None, n_train=n_train)
-    optimizer.zero_grad()         
-    ####### train with dummy label 
-    print("Training with dummy label...")
-    ###### config for testing
-    label_matching_ep = (args.epochs//10) + 1 
-    max_sample =  args.label_maxsamples
-    total_losses, times, stats = [], [], []
-    ###### begin training with dummy label
-    shuffled_loader = torch.utils.data.DataLoader(
-                tgt_train_loader.dataset,
-                batch_size=tgt_train_loader.batch_size,
-                shuffle=True,  # Enable shuffling to permute the order
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory)
-    
-    for ep in range(label_matching_ep):
-        total_loss = 0    
-        time_start = default_timer()    
-        dummy_label = []
-        dummy_probability = []
-        target_label = []   
-        datanum = 0 
-        for j, data in enumerate(shuffled_loader):
-                
-               if transform is not None:
-                  x, y, z = data
-               else:
-                  x, y = data 
-                
-               x = x.to(args.device)
-               y = y.to(args.device)
-               out = src_model(x)
-               out = F.softmax(out, dim=-1)
-               probability, predicted = torch.max(out, 1) 
-               dummy_label.append(predicted)
-               dummy_probability.append(probability)
-               target_label.append(y)
-               datanum += x.shape[0] 
-               #print("datanum: ", datanum)
-               #get_gpu_memory_usage()
-               if datanum >= max_sample:
-                   #print("datanum when backward: ", datanum)
-                   #get_gpu_memory_usage()
-                   dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-                   dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-                   target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
-                   loss.backward()
-                   total_loss += loss.item()
-                   optimizer.step()
-                   optimizer.zero_grad()
-                   dummy_label = []
-                   target_label = []
-                   dummy_probability = []
-                   datanum = 0
-        ###################### handle leftover dataset.
-        if (datanum >= max_sample//2):             
-            dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-            dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-            target_label_tensor = torch.cat(target_label, dim=0)
-            loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
-            loss.backward()
-            total_loss += loss.item()
-        ##############################
-        time_end = default_timer()  
-        times.append(time_end - time_start) 
 
-        total_losses.append(total_loss)
-        stats.append([total_losses[-1], times[-1]])
-        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
-
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()           
-
-    ####delete trash
-    del tgt_train_loader          
-    return src_model  
-####################################################################################################################################################################################
-def label_matching_src_1Dmodel(args,root, src_model, tgt_embedder,num_classes ,src_num_classes):
-    """
-    Label matching by minimize H(Y_t| Y_s): 
-      + Generate dummy label for target data.
-      + Compute emperical P(Y_t| Y_s).
-      + Minimize H(Y_t| Y_s)
-      + Return src_model without predictor
-    """  
-    print("label matching with src model...")
-    ##### check src_model
-    src_model.embedder = tgt_embedder
-    
-    set_grad_state(src_model.model, True)
-    set_grad_state(src_model.embedder, False)
-    print("trainabel params count :  ",count_trainable_params(src_model))
-    print("trainable params: ")
-    src_model.output_raw = False
-    src_model = src_model.to(args.device).train()  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
-         
-    ##### load tgt dataset
-    print(src_model)
-    print("load tgt dataset...")
-    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
-    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    print("infer label...")
-    if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
-        
-    else: 
-        num_classes_new = num_classes
-    
-    ####### get optimizer
-    args, src_model, optimizer, scheduler = get_optimizer_scheduler(args, src_model, module=None, n_train=n_train)
-    optimizer.zero_grad()         
-    ####### train with dummy label 
-    print("Training with dummy label...")
-    ###### config for testing
-    label_matching_ep = (args.epochs//10) + 1 
-    max_sample = args.label_maxsamples
-    total_losses, times, stats = [], [], []
-    ###### begin training with dummy label
-    shuffled_loader = torch.utils.data.DataLoader(
-                tgt_train_loader.dataset,
-                batch_size=tgt_train_loader.batch_size,
-                shuffle=True,  # Enable shuffling to permute the order
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory)
-    
-    for ep in range(label_matching_ep):
-        total_loss = 0    
-        time_start = default_timer()    
-        dummy_label = []
-        dummy_probability = []
-        target_label = []   
-        datanum = 0 
-        for j, data in enumerate(shuffled_loader):
-                
-               if transform is not None:
-                  x, y, z = data
-               else:
-                  x, y = data 
-                
-               x = x.to(args.device)
-               y = y.to(args.device)
-               out = src_model(x)
-               out = F.softmax(out, dim=-1)
-               probability, predicted = torch.max(out, 1) 
-               dummy_label.append(predicted)
-               dummy_probability.append(probability)
-               target_label.append(y)
-               datanum += x.shape[0]
-            #    print("datanum: ", datanum)
-            #    get_gpu_memory_usage() 
-               if datanum >= max_sample:
-                #    print("run backward: ")
-                #    get_gpu_memory_usage()
-                   
-                   dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-                   dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-                   target_label_tensor = torch.cat(target_label, dim=0)
-                   loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,src_num_classes,num_classes_new)
-                   loss.backward()
-                   optimizer.step()
-                   optimizer.zero_grad()
-                   total_loss += loss.item()
-                   dummy_label = []
-                   target_label = []
-                   dummy_probability = []
-                   datanum = 0
-                   #print("after grad")
-                   #get_gpu_memory_usage()
-        ###################### handle leftover dataset. 
-        if (datanum >= max_sample//2):             
-            dummy_labels_tensor = torch.cat(dummy_label, dim=0)
-            dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
-            target_label_tensor = torch.cat(target_label, dim=0)
-            loss = (datanum/len(shuffled_loader))*weighted_CE_loss(dummy_labels_tensor,dummy_probs_tensor ,target_label_tensor,10,num_classes_new)
-            loss.backward()
-            total_loss += loss.item()
-        ##############################
-        time_end = default_timer()  
-        times.append(time_end - time_start) 
-
-        total_losses.append(total_loss)
-        stats.append([total_losses[-1], times[-1]])
-        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
-
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad()           
-    ####delete trash
-    del tgt_train_loader   
-         
-    return src_model  
 
 #########################################################################################################################################################################
 def weighted_CE_loss(dummy_labels, dummy_probs, target_label, src_num_classes, tgt_num_classes):
@@ -921,10 +691,10 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
     ####### train with dummy label 
     print("Training with dummy label...")
     ###### config for testing
-    label_matching_ep = (args.epochs//10) + 1 
+    label_matching_ep = args.label_epochs
     max_sample = args.label_maxsamples
     total_losses, times, stats = [], [], []
-   
+    
     
     for ep in range(label_matching_ep):
         total_loss = 0    
@@ -1039,17 +809,26 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     ####### train with dummy label 
     print("Training with dummy label...")
     ###### config for testing
-    label_matching_ep = (args.epochs//10) + 1 
+    label_matching_ep = args.label_epochs
     max_sample = args.label_maxsamples
     total_losses, times, stats = [], [], []
-   
+    ####################################
+    #init suffled loader
+    shuffled_loader = torch.utils.data.DataLoader(
+                tgt_train_loader.dataset,
+                batch_size=tgt_train_loader.batch_size,
+                shuffle=True,  # Enable shuffling to permute the order
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory)
     
     for ep in range(label_matching_ep):
         total_loss = 0    
         time_start = default_timer()    
         
         for i in np.random.permutation(num_classes_new):
-            
+            ##############################################
+            ## Create nativate set 
+            ##############################################
             datanum = 0
             dummy_probability = []
             for j, data in enumerate(tgt_train_loaders[i]):
