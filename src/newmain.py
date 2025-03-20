@@ -104,7 +104,12 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_dataset)
         del src_train_dataset
     ######### label matching for src_model.
-        src_model = label_matching_by_entropy(args,root, src_model, tgt_model.embedder, num_classes, model_type="2D")
+        if args.C_entropy == False:
+            print("Do fast label matching...")
+            src_model = label_matching_by_entropy(args,root, src_model, tgt_model.embedder, num_classes, model_type="2D")
+        else:
+            print("Do conditional label matching...")
+            src_model = label_matching_by_conditional_entropy(args,root, src_model, tgt_model.embedder, num_classes, model_type="2D")    
     ######### fine-tune all tgt_model after feature-label matching.
         print("Init tgt_model backbone by src_model...")
         tgt_model.model.swin = src_model.model.swin
@@ -122,7 +127,12 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         print("get src predictor...")
         src_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
         src_model.predictor = get_src_predictor1D(args,root)
-        src_model = label_matching_by_entropy(args, root, src_model, tgt_model.embedder, num_classes, model_type="1D")
+        if args.C_entropy == False:
+            print("Do fast label matching...")
+            src_model = label_matching_by_entropy(args, root, src_model, tgt_model.embedder, num_classes, model_type="1D")
+        else:
+            print("Do conditional label matching...")
+            src_model = label_matching_by_conditional_entropy(args, root, src_model, tgt_model.embedder, num_classes, model_type="1D")    
         ####################################################################################
         #Init tgt body model
         tgt_model.model.encoder = src_model.model.encoder
@@ -512,7 +522,8 @@ if __name__ == '__main__':
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
             
             setattr(args, 'C_entropy', C_entropy)
-                     
+            if not hasattr(args, 'label_epochs'):
+                setattr(args, 'label_epochs', 1)         
             main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
 
     
