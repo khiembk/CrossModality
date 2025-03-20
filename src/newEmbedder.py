@@ -828,6 +828,21 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         for i in np.random.permutation(num_classes_new):
             ##############################################
             ## Create nativate set 
+            negative_indices = []
+            desired_negative_size = tgt_train_loaders[i].batch_size * len(tgt_train_loaders[i])  # Match positive set size
+            all_indices = list(range(len(shuffled_loader.dataset)))
+            negative_indices = np.random.choice(all_indices, size=desired_negative_size, replace=False).tolist()
+
+        # Create a Subset for the negative set
+            negative_dataset = torch.utils.data.Subset(shuffled_loader.dataset, negative_indices)
+            cur_negative_set = torch.utils.data.DataLoader(
+                negative_dataset,
+                batch_size=tgt_train_loaders[i].batch_size,
+                shuffle=True,  # Shuffle the negative batch
+                num_workers=tgt_train_loader.num_workers,
+                pin_memory=tgt_train_loader.pin_memory
+            )
+            
             ##############################################
             datanum = 0
             dummy_probability = []
@@ -869,7 +884,33 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 optimizer.zero_grad()
         ##############################
         #### code for compute entropy over target datasets.
-        #### Implement latter
+            native_prob = []
+            native_datanum = 0
+            for k, neg_data in enumerate(cur_negative_set):
+                
+                if transform is not None:
+                  x, y, z = neg_data
+                else:
+                  x, y = neg_data 
+                
+                x = x.to(args.device)
+                y = y.to(args.device)
+                out = src_model(x)
+                out = F.softmax(out, dim=-1)
+                native_prob.append(out)
+                native_datanum += x.shape[0]
+                
+                if native_datanum >= max_sample:
+                
+                   native_probs_tensor = torch.cat(native_prob, dim=0)
+                   loss = - tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(native_prob)
+                   loss.backward()
+                   optimizer.step()
+                   optimizer.zero_grad()
+                   total_loss += loss.item()
+                   native_prob = []
+                   native_datanum = 0
+                  
         ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 
