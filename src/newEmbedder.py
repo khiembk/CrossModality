@@ -903,7 +903,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 if native_datanum >= max_sample:
                 
                    native_probs_tensor = torch.cat(native_prob, dim=0)
-                   loss = - tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(native_probs_tensor)
+                   loss = - tgt_class_weights[i]*(native_datanum/len(cur_negative_set))*Entropy_loss(native_probs_tensor)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
