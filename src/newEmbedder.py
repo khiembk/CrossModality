@@ -775,9 +775,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     ##### check src_model set trainable params
     if model_type == "2D":
        src_model.embedder = tgt_embedder
+       src_model.model.swin.embeddings = src_model.embedder 
     else:
        src_model.embedder = tgt_embedder 
-       src_model.model.swin.embeddings = src_model.embedder    
+          
     set_grad_state(src_model.model, True)
     set_grad_state(src_model.embedder, False)
     print("trainabel params count :  ",count_trainable_params(src_model))

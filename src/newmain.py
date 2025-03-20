@@ -15,7 +15,7 @@ from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feat
 from test_model import get_src_predictor1D
 import wandb
 from datetime import datetime
-from newEmbedder import label_matching_by_entropy
+from newEmbedder import label_matching_by_entropy, label_matching_by_conditional_entropy
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -73,8 +73,10 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       "optimizer": args.optimizer,
       "back_bone": args.weight,
       "target_dataset": args.dataset,
-      "epochs": args.epochs,
-      "feature_matching:": args.embedder_epochs,
+      "training_epochs": args.epochs,
+      "feature_matching_epochs:": args.embedder_epochs,
+      "Conditional_entropy": args.C_entropy,
+      "label_matching_epochs:": args.label_epochs,
       })
     
     #################### Load config 
@@ -492,11 +494,12 @@ if __name__ == '__main__':
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    
+    parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
+    C_entropy = args.C_entropy
     if args.config is not None:     
         import yaml
         with open(args.config, 'r') as stream:
@@ -507,6 +510,8 @@ if __name__ == '__main__':
                 args.embedder_epochs = embedder_ep
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+            
+            setattr(args, 'C_entropy', C_entropy)
                      
             main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
 
