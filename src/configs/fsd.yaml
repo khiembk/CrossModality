@@ -16,7 +16,7 @@ hyperparameters:
     predictor_epochs: 0
     finetune_method: all
     drop_out: 0.0
-
+    label_epochs: 2
     batch_size: 32 
     eval_batch_size: 1000
     accum: 1

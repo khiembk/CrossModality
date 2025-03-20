@@ -12,6 +12,7 @@ hyperparameters:
     label_maxsamples: 16
     experiment_id: 0
     seed: 0
+    label_epochs: 2
     epochs: 13
     embedder_epochs: 60
     predictor_epochs: 0

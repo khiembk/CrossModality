@@ -93,7 +93,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     if Roberta is not True: 
         print("2D task...")
     ######### config for testing 
-        args.embedder_epochs = 10
+        
         src_num_classes = 10  
     ######### get src_model and src_feature
         src_model, src_train_dataset = get_pretrain_model2D_feature(args,root,sample_shape,num_classes,src_num_classes)
@@ -120,7 +120,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         print("get src predictor...")
         src_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
         src_model.predictor = get_src_predictor1D(args,root)
-        src_model = label_matching_src_1Dmodel(args, root, src_model, tgt_model.embedder, num_classes, 9)
+        src_model = label_matching_by_entropy(args, root, src_model, tgt_model.embedder, num_classes, model_type="1D")
         ####################################################################################
         #Init tgt body model
         tgt_model.model.encoder = src_model.model.encoder
