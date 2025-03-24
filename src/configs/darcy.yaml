@@ -8,7 +8,7 @@ hyperparameters:
     objective: otdd-exact
     weight: base
     maxsamples: 128
-    label_maxsamples: 28
+    label_maxsamples: 24
     label_epochs: 5
     experiment_id: 0
     seed: 0

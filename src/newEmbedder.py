@@ -854,25 +854,31 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                else:
                   x, y = data 
                 
-               x = x.to(args.device)
-               y = y.to(args.device)
-               out = src_model(x)
-               out = F.softmax(out, dim=-1)
-               dummy_probability.append(out)
+               #### load sample to gpu
+               x = x.to(args.device, non_blocking=True)
+               y = y.to(args.device, non_blocking=True)
+               #### No gradients during inference
+               with torch.no_grad():
+                  out = src_model(x)
+                  out = F.softmax(out, dim=-1)
+                  dummy_probability.append(out)
                datanum += x.shape[0]
             #    print("datanum: ", datanum)
             #    get_gpu_memory_usage() 
                if datanum >= max_sample:
-                #    print("run backward: ")
-                #    get_gpu_memory_usage()
+                   print("run backward on positive: ")
+                   get_gpu_memory_usage()
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)
                    loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
                    total_loss += loss.item()
+                   # Clear memory
+                   del dummy_probs_tensor, dummy_probability
                    dummy_probability = []
                    datanum = 0
+                   torch.cuda.empty_cache()
                    #print("after grad")
                    #get_gpu_memory_usage()
         ###################### handle leftover dataset. 
@@ -883,6 +889,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 total_loss += loss.item()
                 optimizer.step()
                 optimizer.zero_grad()
+                del dummy_probs_tensor, dummy_probability
         ##############################
         #### code for compute entropy over target datasets.
             native_prob = []
@@ -894,24 +901,31 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 else:
                   x, y = neg_data 
                 
-                x = x.to(args.device)
-                y = y.to(args.device)
-                out = src_model(x)
-                out = F.softmax(out, dim=-1)
-                native_prob.append(out)
+                ### load data to gpu
+                x = x.to(args.device, non_blocking=True)
+                y = y.to(args.device, non_blocking=True)
+                with torch.no_grad():
+                   out = src_model(x)
+                   out = F.softmax(out, dim=-1)
+                   native_prob.append(out)
                 native_datanum += x.shape[0]
                 
                 if native_datanum >= max_sample:
-                
+                   print("run backward on native set: ")
+                   get_gpu_memory_usage()
                    native_probs_tensor = torch.cat(native_prob, dim=0)
                    loss = - tgt_class_weights[i]*(native_datanum/len(cur_negative_set))*Entropy_loss(native_probs_tensor)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
                    total_loss += loss.item()
+                   #### clean data
+                   del native_probs_tensor, native_prob 
                    native_prob = []
                    native_datanum = 0
-                  
+                   torch.cuda.empty_cache()
+            ### delete unuse         
+            del negative_dataset, cur_negative_set       
         ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 
