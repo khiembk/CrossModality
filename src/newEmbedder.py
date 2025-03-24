@@ -866,8 +866,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
             #    print("datanum: ", datanum)
             #    get_gpu_memory_usage() 
                if datanum >= max_sample:
-                   print("run backward on positive: ")
-                   get_gpu_memory_usage()
+                #    print("run backward on positive: ")
+                #    get_gpu_memory_usage()
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)
                    loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
                    loss.backward()
@@ -911,8 +911,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 native_datanum += x.shape[0]
                 
                 if native_datanum >= max_sample:
-                   print("run backward on native set: ")
-                   get_gpu_memory_usage()
+                #    print("run backward on native set: ")
+                #    get_gpu_memory_usage()
                    native_probs_tensor = torch.cat(native_prob, dim=0)
                    loss = - tgt_class_weights[i]*(native_datanum/len(cur_negative_set))*Entropy_loss(native_probs_tensor)
                    loss.backward()
