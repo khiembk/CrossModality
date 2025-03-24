@@ -858,10 +858,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                x = x.to(args.device, non_blocking=True)
                y = y.to(args.device, non_blocking=True)
                #### No gradients during inference
-               with torch.no_grad():
-                  out = src_model(x)
-                  out = F.softmax(out, dim=-1)
-                  dummy_probability.append(out)
+               
+               out = src_model(x)
+               out = F.softmax(out, dim=-1)
+               dummy_probability.append(out)
                datanum += x.shape[0]
             #    print("datanum: ", datanum)
             #    get_gpu_memory_usage() 
@@ -904,10 +904,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 ### load data to gpu
                 x = x.to(args.device, non_blocking=True)
                 y = y.to(args.device, non_blocking=True)
-                with torch.no_grad():
-                   out = src_model(x)
-                   out = F.softmax(out, dim=-1)
-                   native_prob.append(out)
+                
+                out = src_model(x)
+                out = F.softmax(out, dim=-1)
+                native_prob.append(out)
                 native_datanum += x.shape[0]
                 
                 if native_datanum >= max_sample:
