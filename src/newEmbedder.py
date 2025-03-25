@@ -573,7 +573,7 @@ def compute_entropy_over_dataset(args,tgt_train_loader, src_model, transform = N
     
     del shuffled_loader
     return loss          
-    
+#################################################################################################################################################    
 def Entropy_loss(dummy_probs, epxilon = 1e-10):
     """
     Return entropy loss given dummy label and dummpy prob.
@@ -784,22 +784,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         
         for i in np.random.permutation(num_classes_new):
             ##############################################
-            ## Create nativate set 
-            negative_indices = []
-            desired_negative_size = tgt_train_loaders[i].batch_size * len(tgt_train_loaders[i])  # Match positive set size
-            all_indices = list(range(len(shuffled_loader.dataset)))
-            negative_indices = np.random.choice(all_indices, size=desired_negative_size, replace=False).tolist()
-
-        # Create a Subset for the negative set
-            negative_dataset = torch.utils.data.Subset(shuffled_loader.dataset, negative_indices)
-            cur_negative_set = torch.utils.data.DataLoader(
-                negative_dataset,
-                batch_size=tgt_train_loaders[i].batch_size,
-                shuffle=True,  # Shuffle the negative batch
-                num_workers=tgt_train_loader.num_workers,
-                pin_memory=tgt_train_loader.pin_memory
-            )
-            
+         
             ##############################################
             datanum = 0
             dummy_probability = []
@@ -847,41 +832,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 optimizer.zero_grad()
                 del dummy_probs_tensor, dummy_probability
         ##############################
-        #### code for compute entropy over target datasets.
-            native_prob = []
-            native_datanum = 0
-            for k, neg_data in enumerate(cur_negative_set):
-                
-                if transform is not None:
-                  x, y, z = neg_data
-                else:
-                  x, y = neg_data 
-                
-                ### load data to gpu
-                x = x.to(args.device, non_blocking=True)
-                y = y.to(args.device, non_blocking=True)
-                with torch.no_grad():
-                   out = src_model(x)
-                   out = F.softmax(out, dim=-1)
-                   native_prob.append(out)
-                native_datanum += x.shape[0]
-                
-                if native_datanum >= max_sample:
-                #    print("run backward on native set: ")
-                #    get_gpu_memory_usage()
-                   native_probs_tensor = torch.cat(native_prob, dim=0)
-                   loss = - tgt_class_weights[i]*(native_datanum/len(cur_negative_set))*Entropy_loss(native_probs_tensor)
-                #    loss.backward()
-                #    optimizer.step()
-                #    optimizer.zero_grad()
-                   neg_loss += loss.item()
-                   #### clean data
-                   del native_probs_tensor, native_prob 
-                   native_prob = []
-                   native_datanum = 0
-                   torch.cuda.empty_cache()
-            ### delete unuse         
-            del negative_dataset, cur_negative_set       
+        
+        neg_loss = compute_entropy_over_dataset(args,tgt_train_loader,src_model,transform)
         ##############################
         time_end = default_timer()  
         times.append(time_end - time_start) 
