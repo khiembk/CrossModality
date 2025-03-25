@@ -115,7 +115,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
             src_model = label_matching_by_conditional_entropy(args,root, src_model, tgt_model.embedder, num_classes, model_type="2D")    
     ######### fine-tune all tgt_model after feature-label matching.
         print("Init tgt_model backbone by src_model...")
-        tgt_model.model.swin = src_model.model.swin
+        tgt_model.model.swin.encoder = src_model.model.swin.encoder
         del src_model
         set_grad_state(tgt_model.model, True)
         set_grad_state(tgt_model.embedder, True)
@@ -144,10 +144,18 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         set_grad_state(tgt_model.embedder, True)
         ######################################################
     
-    # if (args.freeze_bodymodel):
-    #     print("freeze_body_model_mode...")    
-    #     set_grad_state(tgt_model.model, False)
-    #     set_grad_state(tgt_model.embedder, True)
+    if (args.freeze_bodymodel):
+        if Roberta:
+            print("Freeze 1D bodymodel...")
+            set_grad_state(tgt_model.model.encoder,False)
+            set_grad_state(tgt_model.embedder, True)
+            set_grad_state(tgt_model.predictor, True)
+        else:
+            print("Freeze 2D body model...")
+            set_grad_state(tgt_model.model.swin.encoder,False)
+            set_grad_state(tgt_model.embedder, True)
+            set_grad_state(tgt_model.predictor, True)       
+        
     print("final model: ", tgt_model)
 
     ######### load tgt dataset 
