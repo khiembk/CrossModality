@@ -812,7 +812,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     ###### config for testing
     label_matching_ep = args.label_epochs
     max_sample = args.label_maxsamples
-    total_losses, times, stats = [], [], []
+    neg_losses,pos_losses, times, stats = [], [], []
     ####################################
     #init suffled loader
     shuffled_loader = torch.utils.data.DataLoader(
@@ -823,7 +823,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 pin_memory=tgt_train_loader.pin_memory)
     
     for ep in range(label_matching_ep):
-        total_loss = 0    
+        pos_loss = 0  
+        neg_loss = 0  
         time_start = default_timer()    
         
         for i in np.random.permutation(num_classes_new):
@@ -873,7 +874,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
-                   total_loss += loss.item()
+                   pos_loss += loss.item()
                    # Clear memory
                    del dummy_probs_tensor, dummy_probability
                    dummy_probability = []
@@ -886,7 +887,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
                 loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
                 loss.backward()
-                total_loss += loss.item()
+                pos_loss += loss.item()
                 optimizer.step()
                 optimizer.zero_grad()
                 del dummy_probs_tensor, dummy_probability
@@ -918,7 +919,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
-                   total_loss += loss.item()
+                   neg_loss += loss.item()
                    #### clean data
                    del native_probs_tensor, native_prob 
                    native_prob = []
@@ -930,9 +931,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         time_end = default_timer()  
         times.append(time_end - time_start) 
 
-        total_losses.append(total_loss)
-        stats.append([total_losses[-1], times[-1]])
-        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE loss:", "%.4f" % total_losses[-1])
+        pos_losses.append(pos_loss)
+        neg_losses.append(neg_loss)
+        stats.append([pos_losses[-1], times[-1]])
+        print("[label matching ", ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tCE pos loss:", "%.4f" % pos_losses[-1],"\tCE neg loss:", "%.4f" % neg_losses[-1])
         ### delete native set
     
         optimizer.step()
