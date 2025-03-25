@@ -94,8 +94,13 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     ########## init tgt_model
     tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     tgt_model = tgt_model.to(args.device).train()
-
-    if Roberta is not True: 
+    continue_training = check_if_continue_training(args)
+    if continue_training:
+       print("continue training...")
+       print("set model trainable...")
+       set_grad_state(tgt_model.model, True)
+    else:   
+       if Roberta is not True: 
         print("2D task...")
     ######### config for testing 
         
@@ -119,7 +124,8 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         del src_model
         set_grad_state(tgt_model.model, True)
         set_grad_state(tgt_model.embedder, True)
-    else:
+        
+       else:
         print("1D task...")
         #### get source train dataset 
         src_train_dataset = get_src_train_dataset_1Dmodel(args,root)
@@ -464,7 +470,20 @@ def load_embedder(use_determined, args):
         checkpoint_id = info.latest_checkpoint
         return checkpoint_id is not None
 
+def check_if_continue_training(args):
+    """Check if have a check point from result.
 
+    Args:
+        args (_type_): _description_
+
+    Returns:
+        boolean 
+    """
+    path = 'results/'  + args.dataset +'/' + str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
+    if not os.path.isfile(os.path.join(path, 'state_dict.pt')):
+            return False
+    return True
+        
 def load_state(use_determined, args, context, model, optimizer, scheduler, n_train, checkpoint_id=None, test=False, freq=1):
     if not use_determined:
         path = 'results/'  + args.dataset +'/' + str(args.finetune_method) + '_' + str(args.experiment_id) + "/" + str(args.seed)
