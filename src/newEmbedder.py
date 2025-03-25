@@ -812,7 +812,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     ###### config for testing
     label_matching_ep = args.label_epochs
     max_sample = args.label_maxsamples
-    neg_losses,pos_losses, times, stats = [], [], []
+    neg_losses,pos_losses, times, stats = [], [], [] ,[]
     ####################################
     #init suffled loader
     shuffled_loader = torch.utils.data.DataLoader(
