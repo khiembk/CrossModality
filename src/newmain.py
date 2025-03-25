@@ -99,6 +99,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
        print("continue training...")
        print("set model trainable...")
        set_grad_state(tgt_model.model, True)
+       tgt_model.output_raw = False
     else:   
        if Roberta is not True: 
         print("2D task...")
