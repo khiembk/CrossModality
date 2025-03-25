@@ -547,7 +547,7 @@ def compute_entropy_over_dataset(args,tgt_train_loader, src_model, transform = N
                 pin_memory=tgt_train_loader.pin_memory)
     
     native_prob = []
-    native_num = []
+    native_num = 0
     max_size = min(max_size,len(shuffled_loader))
     for j, data in enumerate(shuffled_loader):
                 
@@ -562,7 +562,7 @@ def compute_entropy_over_dataset(args,tgt_train_loader, src_model, transform = N
                 out = src_model(x)
                 out = F.softmax(out, dim=-1)
                 native_prob.append(out)
-            native_num += x.shape[0]      
+            native_num += x.shape[0]     
             if native_num >= max_size:
                 #    print("run backward: ")
                 #    get_gpu_memory_usage()
