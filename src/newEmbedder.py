@@ -666,12 +666,12 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
     print("trainable params: ")
     src_model.output_raw = False
     src_model = src_model.to(args.device).train()  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
+    # for name, param in src_model.named_parameters():
+    #   if param.requires_grad:
+    #      print(name)
          
-    ##### load tgt dataset
-    print(src_model)
+    # ##### load tgt dataset
+    # print(src_model)
     print("load tgt dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
@@ -785,12 +785,12 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     print("trainable params: ")
     src_model.output_raw = False
     src_model = src_model.to(args.device).train()  
-    for name, param in src_model.named_parameters():
-      if param.requires_grad:
-         print(name)
+    # for name, param in src_model.named_parameters():
+    #   if param.requires_grad:
+    #      print(name)
          
     ##### load tgt dataset
-    print(src_model)
+    # print(src_model)
     print("load tgt dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None

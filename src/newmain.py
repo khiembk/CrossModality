@@ -67,7 +67,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       # Set the project where this run will be logged
       project="CrossModality",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+      name = (
+    f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+    f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}"),
       # Track hyperparameters and run metadata
       config={
       "optimizer": args.optimizer,
@@ -77,6 +79,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       "feature_matching_epochs:": args.embedder_epochs,
       "Conditional_entropy": args.C_entropy,
       "label_matching_epochs:": args.label_epochs,
+      "freeze_bodymodel": args.freeze_bodymodel,
       })
     
     #################### Load config 
@@ -140,9 +143,12 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         set_grad_state(tgt_model.model, True)
         set_grad_state(tgt_model.embedder, True)
         ######################################################
-        
-
-
+    
+    # if (args.freeze_bodymodel):
+    #     print("freeze_body_model_mode...")    
+    #     set_grad_state(tgt_model.model, False)
+    #     set_grad_state(tgt_model.embedder, True)
+    print("final model: ", tgt_model)
 
     ######### load tgt dataset 
     print("load tgt dataset ...")
@@ -505,11 +511,14 @@ if __name__ == '__main__':
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
+    parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     C_entropy = args.C_entropy
+    freeze_bodymodel = args.freeze_bodymodel
+    ############################################
     if args.config is not None:     
         import yaml
         with open(args.config, 'r') as stream:
@@ -520,7 +529,10 @@ if __name__ == '__main__':
                 args.embedder_epochs = embedder_ep
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-            
+            if (freeze_bodymodel):
+                args.finetune_method = args.finetune_method + '_freeze_bodymodel'
+            ################################################################    
+            setattr(args, 'freeze_bodymodel', freeze_bodymodel)    
             setattr(args, 'C_entropy', C_entropy)
             if not hasattr(args, 'label_epochs'):
                 setattr(args, 'label_epochs', 1)         
