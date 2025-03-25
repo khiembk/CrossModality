@@ -905,10 +905,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 ### load data to gpu
                 x = x.to(args.device, non_blocking=True)
                 y = y.to(args.device, non_blocking=True)
-                
-                out = src_model(x)
-                out = F.softmax(out, dim=-1)
-                native_prob.append(out)
+                with torch.no_grad():
+                   out = src_model(x)
+                   out = F.softmax(out, dim=-1)
+                   native_prob.append(out)
                 native_datanum += x.shape[0]
                 
                 if native_datanum >= max_sample:
@@ -916,9 +916,9 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 #    get_gpu_memory_usage()
                    native_probs_tensor = torch.cat(native_prob, dim=0)
                    loss = - tgt_class_weights[i]*(native_datanum/len(cur_negative_set))*Entropy_loss(native_probs_tensor)
-                   loss.backward()
-                   optimizer.step()
-                   optimizer.zero_grad()
+                #    loss.backward()
+                #    optimizer.step()
+                #    optimizer.zero_grad()
                    neg_loss += loss.item()
                    #### clean data
                    del native_probs_tensor, native_prob 
