@@ -878,10 +878,11 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                #### No gradients during inference
                
                 out_neg = src_model(x_neg)
-                out_neg = F.softmax(out, dim=-1)
+                out_neg = F.softmax(out_neg, dim=-1)
                 neg_prob.append(out_neg)
                 neg_num += x_neg.shape[0]
                 if neg_num >= max_sample:
+                   print("neg_num = ", neg_num)
                    print("run backward on neg: ")
                    get_gpu_memory_usage()
                    neg_prob_tensor = torch.cat(neg_prob, dim=0)
