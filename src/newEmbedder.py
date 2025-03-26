@@ -811,7 +811,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         time_start = default_timer()    
         
         for i in np.random.permutation(num_classes_new):
-            
+            print("curent class: ",i)
             ##############################################
             datanum = 0
             dummy_probability = []
@@ -834,8 +834,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
             #    print("datanum: ", datanum)
             #    get_gpu_memory_usage() 
                 if datanum >= max_sample:
-                #    print("run backward on positive: ")
-                #    get_gpu_memory_usage()
+                   print("run backward on positive: ")
+                   get_gpu_memory_usage()
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)
                    loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
                    loss.backward()
@@ -847,8 +847,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    dummy_probability = []
                    datanum = 0
                    torch.cuda.empty_cache()
-                   #print("after grad")
-                   #get_gpu_memory_usage()
+                   print("after grad")
+                   get_gpu_memory_usage()
         ###################### handle leftover dataset. 
             if (datanum >= max_sample//2):             
                 dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
@@ -882,8 +882,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 neg_prob.append(out)
                 neg_num += x.shape[0]
                 if neg_num >= max_sample:
-                #    print("run backward on positive: ")
-                #    get_gpu_memory_usage()
+                   print("run backward on neg: ")
+                   get_gpu_memory_usage()
                    neg_prob_tensor = torch.cat(neg_prob, dim=0)
                    loss = -tgt_class_weights[i]*(neg_num/len(tgt_train_loaders[i]))*Entropy_loss(neg_prob_tensor)
                    loss.backward()
