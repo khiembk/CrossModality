@@ -742,7 +742,74 @@ def create_native_set(tgt_train_loader,i, desired_negative_size):
             pin_memory=tgt_train_loader.pin_memory
         )
     return cur_negative_set      
-   
+#########################################################################################################################################################################
+def create_uniform_native_set(tgt_train_loader, exclude_class, desired_negative_size):
+    # Get the full dataset and its labels
+    dataset = tgt_train_loader.dataset
+    all_labels = None
+    
+    # Assuming dataset yields (inputs, labels) or (inputs, labels, extras)
+    # Load all labels efficiently (assuming they're accessible)
+    for batch in DataLoader(dataset, batch_size= tgt_train_loader.batch_size, shuffle=False):
+        if len(batch) == 3:  # With transform
+            _, labels, _ = batch
+        else:  # Without transform
+            _, labels = batch
+        if all_labels is None:
+            all_labels = labels
+        else:
+            all_labels = torch.cat([all_labels, labels], dim=0)
+
+    # Number of classes excluding the current one
+    num_classes = len(torch.unique(all_labels))  # Assumes labels are 0 to num_classes-1
+    num_classes_excluding_i = num_classes - 1
+    samples_per_class = desired_negative_size // num_classes_excluding_i  # Uniform split
+
+    # Collect indices for each class
+    negative_indices = []
+    for class_idx in range(num_classes):
+        if class_idx == exclude_class:
+            continue  # Skip the excluded class
+
+        # Find indices for this class
+        class_mask = all_labels == class_idx
+        class_indices = torch.where(class_mask)[0].tolist()
+        num_available = len(class_indices)
+
+        # Sample from this class
+        if num_available <= samples_per_class:
+            # Take all if fewer than needed, pad with random repeats if necessary
+            selected_indices = class_indices
+            if num_available < samples_per_class:
+                extra_indices = np.random.choice(class_indices, size=samples_per_class - num_available, replace=True).tolist()
+                selected_indices.extend(extra_indices)
+        else:
+            # Randomly sample without replacement
+            selected_indices = np.random.choice(class_indices, size=samples_per_class, replace=False).tolist()
+
+        negative_indices.extend(selected_indices)
+
+    # Adjust total size to match desired_negative_size
+    current_size = len(negative_indices)
+    if current_size < desired_negative_size:
+        # Add random samples from non-excluded classes to fill
+        all_non_i_indices = torch.where(all_labels != exclude_class)[0].tolist()
+        extra_indices = np.random.choice(all_non_i_indices, size=desired_negative_size - current_size, replace=True).tolist()
+        negative_indices.extend(extra_indices)
+    elif current_size > desired_negative_size:
+        # Trim excess randomly
+        negative_indices = np.random.choice(negative_indices, size=desired_negative_size, replace=False).tolist()
+
+    # Create the negative dataset
+    negative_dataset = Subset(dataset, negative_indices)
+    cur_negative_set = DataLoader(
+        negative_dataset,
+        batch_size=tgt_train_loader.batch_size,
+        shuffle=True,
+        num_workers=tgt_train_loader.num_workers,
+        pin_memory=tgt_train_loader.pin_memory
+    )
+    return cur_negative_set   
 #########################################################################################################################################################################
 def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes= 10, model_type = "2D"):
 
@@ -834,8 +901,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
             #    print("datanum: ", datanum)
             #    get_gpu_memory_usage() 
                 if datanum >= max_sample:
-                   print("run backward on positive: ")
-                   get_gpu_memory_usage()
+                #    print("run backward on positive: ")
+                #    get_gpu_memory_usage()
                    dummy_probs_tensor = torch.cat(dummy_probability, dim=0)
                    loss = tgt_class_weights[i]*(datanum/len(tgt_train_loaders[i]))*Entropy_loss(dummy_probs_tensor)
                    loss.backward()
@@ -847,8 +914,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    dummy_probability = []
                    datanum = 0
                    torch.cuda.empty_cache()
-                   print("after pos grad")
-                   get_gpu_memory_usage()
+                #    print("after pos grad")
+                #    get_gpu_memory_usage()
         ###################### handle leftover dataset. 
             if (datanum >= max_sample//2):             
                 dummy_probs_tensor = torch.cat(dummy_probability, dim=0)  # This is a tensor
@@ -882,11 +949,11 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 neg_prob.append(out_neg)
                 neg_num += x_neg.shape[0]
                 if neg_num >= max_sample:
-                   print("neg_num = ", neg_num)
-                   print("run backward on neg: ")
-                   get_gpu_memory_usage()
+                #    print("neg_num = ", neg_num)
+                #    print("run backward on neg: ")
+                #    get_gpu_memory_usage()
                    neg_prob_tensor = torch.cat(neg_prob, dim=0)
-                   loss = -tgt_class_weights[i]*(neg_num/len(tgt_train_loaders[i]))*Entropy_loss(neg_prob_tensor)
+                   loss = -tgt_class_weights[i]*(neg_num/len(native_dataset))*Entropy_loss(neg_prob_tensor)
                    loss.backward()
                    optimizer.step()
                    optimizer.zero_grad()
@@ -896,8 +963,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    neg_prob = []
                    neg_num = 0
                    torch.cuda.empty_cache()
-                   print("after neg grad")
-                   get_gpu_memory_usage()
+                #    print("after neg grad")
+                #    get_gpu_memory_usage()
             del native_dataset          
         #neg_loss = compute_entropy_over_dataset(args,tgt_train_loader,src_model,transform)
         ##############################
