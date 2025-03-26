@@ -736,7 +736,7 @@ def create_native_set(tgt_train_loader,i, desired_negative_size):
     negative_dataset = Subset(shuffled_loader.dataset, negative_indices[:desired_negative_size])
     cur_negative_set = DataLoader(
             negative_dataset,
-            batch_size= tgt_train_loader.dataset,
+            batch_size= tgt_train_loader.batch_size,
             shuffle=True,  # Shuffle the negative set
             num_workers=tgt_train_loader.num_workers,
             pin_memory=tgt_train_loader.pin_memory
