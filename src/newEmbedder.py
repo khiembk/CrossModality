@@ -721,7 +721,7 @@ def create_native_set(tgt_train_loader,i, desired_negative_size):
                 pin_memory=tgt_train_loader.pin_memory)
     
     negative_indices = []
-    #desired_negative_size = tgt_train_loaders[i].batch_size * len(tgt_train_loaders[i])
+    negative_samples_collected = 0 
     
     for neg_batch in shuffled_loader:
         neg_inputs, neg_labels = neg_batch  # Adjust based on your data structure
