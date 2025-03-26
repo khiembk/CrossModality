@@ -847,7 +847,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    dummy_probability = []
                    datanum = 0
                    torch.cuda.empty_cache()
-                   print("after grad")
+                   print("after pos grad")
                    get_gpu_memory_usage()
         ###################### handle leftover dataset. 
             if (datanum >= max_sample//2):             
@@ -877,10 +877,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 y_neg = y_neg.to(args.device, non_blocking=True)
                #### No gradients during inference
                
-                out = src_model(x_neg)
-                out = F.softmax(out, dim=-1)
-                neg_prob.append(out)
-                neg_num += x.shape[0]
+                out_neg = src_model(x_neg)
+                out_neg = F.softmax(out, dim=-1)
+                neg_prob.append(out_neg)
+                neg_num += x_neg.shape[0]
                 if neg_num >= max_sample:
                    print("run backward on neg: ")
                    get_gpu_memory_usage()
@@ -895,7 +895,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                    neg_prob = []
                    neg_num = 0
                    torch.cuda.empty_cache()
-            
+                   print("after neg grad")
+                   get_gpu_memory_usage()
             del native_dataset          
         #neg_loss = compute_entropy_over_dataset(args,tgt_train_loader,src_model,transform)
         ##############################
