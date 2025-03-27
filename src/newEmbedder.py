@@ -878,7 +878,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         time_start = default_timer()    
         
         for i in np.random.permutation(num_classes_new):
-            print("curent class: ",i)
+            #print("curent class: ",i)
             ##############################################
             datanum = 0
             dummy_probability = []
@@ -928,7 +928,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         ##############################
             ###### code for nativate sample 
             desired_negative_size = tgt_train_loaders[i].batch_size * len(tgt_train_loaders[i]) 
-            native_dataset = create_native_set(tgt_train_loader,i,desired_negative_size)
+            native_dataset = create_uniform_native_set(tgt_train_loader,i,desired_negative_size)
             #### train with native set
             neg_num = 0
             neg_prob = []
