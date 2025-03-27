@@ -928,7 +928,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
         ##############################
             ###### code for nativate sample 
             desired_negative_size = tgt_train_loaders[i].batch_size * len(tgt_train_loaders[i]) 
-            native_dataset = create_uniform_native_set(tgt_train_loader,i,desired_negative_size)
+            native_dataset = create_native_set(tgt_train_loader,i,desired_negative_size)
             #### train with native set
             neg_num = 0
             neg_prob = []
@@ -953,11 +953,11 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
                 #    print("run backward on neg: ")
                 #    get_gpu_memory_usage()
                    neg_prob_tensor = torch.cat(neg_prob, dim=0)
-                   loss = -tgt_class_weights[i]*(neg_num/len(native_dataset))*Entropy_loss(neg_prob_tensor)
-                   loss.backward()
+                   loss_neg = -tgt_class_weights[i]*(neg_num/len(native_dataset))*Entropy_loss(neg_prob_tensor)
+                   loss_neg.backward()
                    optimizer.step()
                    optimizer.zero_grad()
-                   neg_loss += loss.item()
+                   neg_loss += loss_neg.item()
                    # Clear memory
                    del neg_prob, neg_prob_tensor
                    neg_prob = []
