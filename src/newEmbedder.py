@@ -392,7 +392,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
             src_feats.append(out.detach().cpu())
             
     src_feats = torch.cat(src_feats, 0)
-    src_ys = torch.cat(src_ys, 0).long()
+    src_ys = torch.zeros(len(src_feats), dtype=torch.long)
     src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
     ##### clearn cache
     del src_ys, src_feats, src_train_loader
