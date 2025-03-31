@@ -8,7 +8,7 @@ hyperparameters:
     objective: otdd-exact
     weight: roberta
     maxsamples: 128
-    label_maxsamples: 16
+    label_maxsamples: 32
     experiment_id: 0
     seed: 0
     epochs: 60

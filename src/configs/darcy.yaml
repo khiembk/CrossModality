@@ -9,7 +9,7 @@ hyperparameters:
     weight: base
     maxsamples: 128
     label_maxsamples: 20
-    label_epochs: 0
+    label_epochs: 5
     experiment_id: 0
     seed: 0
     epochs: 100

@@ -43,7 +43,7 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
     
     wandb.init(
       # Set the project where this run will be logged
-      project="CrossModality",
+      project= f"CrossModality_{args.dataset}",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
       name=f"ORCA_baseline_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
       # Track hyperparameters and run metadata
