@@ -291,6 +291,42 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     wandb.finish()    
 
 
+def linear_probing(args, model, train_loader, val_loader, test_loader, metric, compare_metrics,decoder,transform, Roberta, loss,n_train,n_val,linear_prob_ep=5):
+    ###### check model
+    print("Freeze body model...")
+    if Roberta:
+            print("Freeze 1D bodymodel...")
+            set_grad_state(model.model.encoder,False)
+            set_grad_state(model.predictor, True)
+    else:
+            print("Freeze 2D body model...")
+            set_grad_state(model.model.swin.encoder,False)
+            set_grad_state(model.predictor, True)   
+    ###### load optimizer
+    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model) 
+    ###### start linear probing
+    print("\n------- Start Linear Probing --------" )
+    train_losses = []
+    train_score = []
+    train_time = [] 
+    for ep in range(linear_prob_ep):
+        ##### train
+        time_start = default_timer()
+        train_loss = train_one_epoch(None, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform)
+        train_time_ep = default_timer() -  time_start 
+        #### eval
+        val_loss, val_score = evaluate(None, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
+        train_losses.append(train_loss)
+        train_score.append(val_score)
+        train_time.append(train_time_ep)
+        print("[train", "predictor" , ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
+    
+    print("\n------- Finish Linear Probing --------" )
+    ###### set full model trainable
+    print("Set all params trainable...")
+    set_grad_state(model,True) 
+    ###### delete trash
+    return model
 
 def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
 
