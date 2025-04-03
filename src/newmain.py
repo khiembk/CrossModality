@@ -28,7 +28,7 @@ def set_seed(seed: int = 42) -> None:
     os.environ["PYTHONHASHSEED"] = str(seed)
     print(f"Random seed set as {seed}")
 
-def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None):
+def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None, second_train = False):
     #set_seed()
     ############## Init log file and set seed
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -200,7 +200,11 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     # print("print model")
     # print(model)
     logging.info(f"Model Structure:\n{tgt_model}")
-    tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, tgt_model, optimizer, scheduler, n_train, freq=args.validation_freq)
+    ###### load state optimizer
+    if second_train:
+        tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, tgt_model, None, None, n_train, freq=args.validation_freq, test = True)
+    else:
+        tgt_model, ep_start, id_best, train_score, train_losses, embedder_statssaved = load_state(use_determined, args, context, tgt_model, optimizer, scheduler, n_train, freq=args.validation_freq)
     #embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
     train_time = []
     embedder_stats = []
@@ -576,11 +580,14 @@ if __name__ == '__main__':
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
     parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
+    parser.add_argument('--second_train', type= bool, default= False, help='[option]determind second train model or not')
+
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     C_entropy = args.C_entropy
+    second_train = args.second_train
     freeze_bodymodel = args.freeze_bodymodel
     ############################################
     if args.config is not None:     
@@ -600,6 +607,7 @@ if __name__ == '__main__':
             setattr(args, 'C_entropy', C_entropy)
             if not hasattr(args, 'label_epochs'):
                 setattr(args, 'label_epochs', 1)         
-            main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
-
+            main(False, args, DatasetRoot= root_dataset, log_folder= log_folder, second_train= second_train)
+    else:
+        print("Config for training not found...")
     
