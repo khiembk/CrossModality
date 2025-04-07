@@ -1985,7 +1985,7 @@ def get_bulk_output_dist_maps(pdb_id_list, all_dist_paths, OUTL):
     return YY.astype(np.float32)
 
 def get_input_output_dist(pdb_id_list, all_feat_paths, all_dist_paths, pad_size, OUTL, expected_n_channels):
-    XX = np.full((len(pdb_id_list), OUTL, OUTL, expected_n_channels), 0.0)
+    XX = np.full((len(pdb_id_list), OUTL, OUTL, expected_n_channels), 0.0, dtype=np.float32)
     YY = np.full((len(pdb_id_list), OUTL, OUTL, 1), 100.0)
     for i, pdb in enumerate(pdb_id_list):
         X = get_feature(pdb, all_feat_paths, expected_n_channels)

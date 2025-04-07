@@ -17,7 +17,7 @@ hyperparameters:
     finetune_method: all
     drop_out: 0
     label_maxsamples: 16
-    batch_size: 32  
+    batch_size: 28  
     eval_batch_size: 1000
     accum: 1
     clip: 1

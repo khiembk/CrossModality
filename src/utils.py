@@ -446,7 +446,8 @@ class FocalLoss(nn.Module):
              self.criterion =  self.criterion.cuda()
 
     def forward(self, output, target):
-        target = torch.eye(18)[target].to(device)
+        # target = torch.eye(18)[target].to(device)
+        target = torch.eye(18, device=target.device)[target]
         model_out = F.softmax(output, dim = 1) + 1e-9
 
         ce = torch.multiply(target, -torch.log(model_out))
