@@ -593,7 +593,7 @@ def Entropy_loss(dummy_probs, epxilon = 1e-10):
     
     return entropy
 ###################################################################################################################################################
-def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes= 10, model_type = "2D"):
+def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes= 10, model_type = "2D", fronzen_predictor = True):
     """ Label matching by minimize src entrpy each classes sum H(Y^S|Y^T = y^t)
 
     Args:
@@ -617,6 +617,10 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
          
     set_grad_state(src_model.model, True)
     set_grad_state(src_model.embedder, False)
+    if fronzen_predictor:
+       print("[Label Matching]-Set src predictor frozen...")
+       set_grad_state(src_model.predictor, False)
+    ################################################################    
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
     src_model.output_raw = False
@@ -811,7 +815,7 @@ def create_uniform_native_set(tgt_train_loader, exclude_class, desired_negative_
     )
     return cur_negative_set   
 #########################################################################################################################################################################
-def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes= 10, model_type = "2D"):
+def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num_classes ,src_num_classes= 10, model_type = "2D", frozen_predictor = True):
 
     """ Label matching by minimize src conditional entrpy each classes (sum H(Y^S|Y^T = y^t)) - H(Y^s)
 
@@ -836,6 +840,9 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
           
     set_grad_state(src_model.model, True)
     set_grad_state(src_model.embedder, False)
+    if frozen_predictor:
+       print("[Label Matching]-Set src predictor frozen")
+       set_grad_state(src_model.predictor, False) 
     print("trainabel params count :  ",count_trainable_params(src_model))
     print("trainable params: ")
     src_model.output_raw = False
