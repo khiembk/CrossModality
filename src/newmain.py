@@ -61,26 +61,26 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         cudnn.benchmark = True
     ##################################################################################################
     ##### Init wanDB
-    wandb.login(key= "87a17a462a0003e50590ec537dda9beacbcc2d63")
+    # wandb.login(key= "87a17a462a0003e50590ec537dda9beacbcc2d63")
     
-    wandb.init(
-      # Set the project where this run will be logged
-      project= f"CrossModality_{args.dataset}",
-      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name = (
-    f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
-    f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}"),
-      # Track hyperparameters and run metadata
-      config={
-      "optimizer": args.optimizer,
-      "back_bone": args.weight,
-      "target_dataset": args.dataset,
-      "training_epochs": args.epochs,
-      "feature_matching_epochs:": args.embedder_epochs,
-      "Conditional_entropy": args.C_entropy,
-      "label_matching_epochs:": args.label_epochs,
-      "freeze_bodymodel": args.freeze_bodymodel,
-      })
+    # wandb.init(
+    #   # Set the project where this run will be logged
+    #   project= f"CrossModality_{args.dataset}",
+    #   # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+    #   name = (
+    # f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+    # f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}"),
+    #   # Track hyperparameters and run metadata
+    #   config={
+    #   "optimizer": args.optimizer,
+    #   "back_bone": args.weight,
+    #   "target_dataset": args.dataset,
+    #   "training_epochs": args.epochs,
+    #   "feature_matching_epochs:": args.embedder_epochs,
+    #   "Conditional_entropy": args.C_entropy,
+    #   "label_matching_epochs:": args.label_epochs,
+    #   "freeze_bodymodel": args.freeze_bodymodel,
+    #   })
     
     #################### Load config 
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
@@ -233,14 +233,14 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
             "[train %s %d %.6f] time elapsed: %.4f\ttrain loss: %.4f\tval loss: %.4f\tval score: %.4f\tbest val score: %.4f",
             "full" if ep >= args.predictor_epochs else "predictor",ep,optimizer.param_groups[0]['lr'], train_time[-1], train_loss,
              val_loss, val_score,compare_metrics(train_score))
-            wandb.log({
-            "epoch": ep,
-            "time_elapsed": train_time[-1],
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "val_score": val_score,
-            "best_val_score": compare_metrics(train_score)
-            })
+            # wandb.log({
+            # "epoch": ep,
+            # "time_elapsed": train_time[-1],
+            # "train_loss": train_loss,
+            # "val_loss": val_loss,
+            # "val_score": val_score,
+            # "best_val_score": compare_metrics(train_score)
+            # })
             if use_determined :
                 id_current = save_state(use_determined, args, context, tgt_model, optimizer, scheduler, ep, n_train, train_score, train_losses, embedder_stats)
                 try:
@@ -292,7 +292,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
             return
 
    
-    wandb.finish()    
+    # wandb.finish()    
 
 
 def linear_probing(args, model, train_loader, val_loader, test_loader, metric, compare_metrics,decoder,transform, Roberta, loss,n_train,n_val,linear_prob_ep=5):

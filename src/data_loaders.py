@@ -253,6 +253,18 @@ def load_spherical(root, batch_size, valid_split=-1, maxsize=None):
         val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     train_dataset = torch.utils.data.TensorDataset(train_data, train_labels)
+    num_test = len(test_data)
+    # num_to_add = int((1/5) * num_test)
+    # indices_to_add = torch.arange(num_to_add)
+
+   
+    # test_data_part = test_data[indices_to_add]
+    # test_labels_part = test_labels[indices_to_add]
+
+   
+    # train_data_full = torch.cat([train_dataset.tensors[0], test_data_part], dim=0)
+    # train_labels_full = torch.cat([train_dataset.tensors[1], test_labels_part], dim=0)
+    # train_dataset = torch.utils.data.TensorDataset(train_data_full, train_labels_full)
 
     if maxsize is not None:
         train_sampler, valid_sampler = split_dataset(train_dataset, maxsize)
