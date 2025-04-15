@@ -978,13 +978,10 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
     if args.dataset == "PSICOV":
         print("Sample random subset of dataset for PSICOV...")
-        num_samples = 900
-        total_samples = len(tgt_train_loader.dataset)
-        indices = torch.randperm(total_samples)[:num_samples]  # randomly sample 900 indices
-        subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, indices)
-        tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1, shuffle=True)
-        del subset_dataset
-        
+        subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, range(900))
+        tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1)
+        del subset_dataset  
+
     print("infer label...")
     if args.infer_label:
         tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
