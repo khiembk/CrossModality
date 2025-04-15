@@ -599,7 +599,7 @@ if __name__ == '__main__':
             if (embedder_ep != None): 
                 args.embedder_epochs = embedder_ep
             if (args.embedder_epochs > 0):
-                args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
+                args.finetune_method = args.finetune_method + 'FM_CE' + str(args.embedder_epochs)
             if (freeze_bodymodel):
                 args.finetune_method = args.finetune_method + '_freeze_bodymodel'
             ################################################################    

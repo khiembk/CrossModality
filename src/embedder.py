@@ -10,7 +10,8 @@ from otdd.pytorch.distance import DatasetDistance, FeatureCost
 import psutil
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
-import copy
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA
 
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
@@ -294,7 +295,12 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
     print("Begin load target dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    print("Complte load target dataset...")    
+    print("Complte load target dataset...")
+    if args.dataset == "PSICOV":
+       print("Sample sub datset for Psicov...")
+       subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, range(900))
+       tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1)
+       del subset_dataset   
     if args.infer_label:
         print("Begin infer label....")
         print("num class: ", num_classes)
@@ -453,13 +459,13 @@ def load_by_class(loader, num_classes):
 
 #     return xs, ys, zs
 
-def get_tensors(dataset, max_samples=1000, batch_size=32):
+def get_tensors(dataset, max_samples=100, batch_size=4):
     print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,  # Avoid multiprocessing overhead
+        num_workers=0,
         pin_memory=False
     )
     
@@ -471,7 +477,6 @@ def get_tensors(dataset, max_samples=1000, batch_size=32):
         X_batch, Y_batch = batch[0], batch[1]
         Z_batch = batch[2] if len(batch) > 2 else None
         
-        # Convert to NumPy for Y (since clustering requires it)
         xs.append(X_batch.cpu())
         ys.append(Y_batch.cpu().numpy())
         if Z_batch is not None:
@@ -487,5 +492,6 @@ def get_tensors(dataset, max_samples=1000, batch_size=32):
     zs = torch.cat(zs) if zs else None
     
     print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
-    print(f"Memory used: {psutil.virtual_memory()}")
     return xs, ys, zs
+
+
