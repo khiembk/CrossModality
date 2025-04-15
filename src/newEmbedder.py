@@ -439,11 +439,121 @@ def get_top_k_predictor_2Dmodel(k=1000):
         
 
 ##############################################################################################################################################
+def feature_matching_OTDD_tgt_model(args,root , tgt_model, sample_shape, num_classes):
+    """
+    Embedder training minimize source and target feture distribution:  
+      + return tgt_model
+    """ 
+    
+    print("feature matching by OTDD...")
+    ##### check tgt_model
+    set_grad_state(tgt_model.embedder, True)
+    print("trainabel params count :  ",count_trainable_params(tgt_model))
+    print("trainable params: ")  
+    for name, param in tgt_model.named_parameters():
+      if param.requires_grad:
+         print(name)
+    ### load tgt_loader
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    if len(sample_shape) == 4:
+        IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
+            
+        src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+        src_model = src_model.to(args.device).eval()
+            
+        src_feats = []
+        src_ys = []
+        for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            out = src_model(x_)
+            if len(out.shape) > 2:
+                out = out.mean(1)
+
+            src_ys.append(y_.detach().cpu())
+            src_feats.append(out.detach().cpu())
+        src_feats = torch.cat(src_feats, 0)
+        src_ys = torch.cat(src_ys, 0).long()
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)        
+        del src_model    
+
+    else:
+        src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
+        src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
+        
+    tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
+    transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
+        
+    if args.infer_label:
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+    else:
+        num_classes_new = num_classes
+
+    print("src feat shape", src_feats.shape, src_ys.shape, "num classes", num_classes_new) 
+
+    tgt_train_loaders, tgt_class_weights = load_by_class(tgt_train_loader, num_classes_new)
+
+    
+    args, tgt_model, tgt_model_optimizer, tgt_model_scheduler = get_optimizer_scheduler(args, tgt_model, module='embedder')
+    tgt_model_optimizer.zero_grad()
+
+    
+    score_func = partial(otdd, src_train_dataset=src_train_dataset, exact=True)
+    
+    score = 0
+    total_losses, times, embedder_stats = [], [], []
+    
+    for ep in range(args.embedder_epochs):   
+
+        total_loss = 0    
+        time_start = default_timer()
+
+        for i in np.random.permutation(num_classes_new):
+            feats = []
+            datanum = 0
+
+            for j, data in enumerate(tgt_train_loaders[i]):
+                
+                if transform is not None:
+                    x, y, z = data
+                else:
+                    x, y = data 
+                
+                x = x.to(args.device)
+                out = tgt_model(x)
+                feats.append(out)
+                datanum += x.shape[0]
+                
+                if datanum > args.maxsamples: break
+
+            feats = torch.cat(feats, 0).mean(1)
+            if feats.shape[0] > 1:
+                loss = tgt_class_weights[i] * score_func(feats)
+                loss.backward()
+                total_loss += loss.item()
+
+        time_end = default_timer()  
+        times.append(time_end - time_start) 
+
+        total_losses.append(total_loss)
+        embedder_stats.append([total_losses[-1], times[-1]])
+        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\totdd loss:", "%.4f" % total_losses[-1])
+
+        tgt_model_optimizer.step()
+        tgt_model_scheduler.step()
+        tgt_model_optimizer.zero_grad()
+
+    del tgt_train_loader, tgt_train_loaders
+    torch.cuda.empty_cache()
+
+    tgt_model.output_raw = False
+
+    return tgt_model
+##############################################################################################################################################
 def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
     """
-    Embedder training using optimal transport to minimize source and target feture distribution: 
-      + Early implement using OTDD
-      + Feature work using Total Variance distance 
+    Embedder training minimize source and target feture distribution:  
       + return tgt_model
     """ 
     

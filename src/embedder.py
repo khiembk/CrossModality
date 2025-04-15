@@ -7,7 +7,7 @@ from timeit import default_timer
 from functools import partial
 from transformers import AutoModel, AutoConfig, SwinForImageClassification, SwinForMaskedImageModeling, RobertaForTokenClassification
 from otdd.pytorch.distance import DatasetDistance, FeatureCost
-
+import psutil
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy
@@ -261,7 +261,7 @@ class Embeddings1D(nn.Module):
 ####################################################
 
 def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, use_determined=False, context=None, opid=0):
-    
+    print("Start load src dataset...")
     src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
     if len(sample_shape) == 4:
         IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
@@ -289,12 +289,17 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
     else:
         src_feats, src_ys = src_train_loader.dataset.tensors[0].mean(1), src_train_loader.dataset.tensors[1]
         src_train_dataset = torch.utils.data.TensorDataset(src_feats, src_ys)
-        
+
+    print("Complete get source dataset...")    
+    print("Begin load target dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-        
+    print("Complte load target dataset...")    
     if args.infer_label:
+        print("Begin infer label....")
+        print("num class: ", num_classes)
         tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+        print("Complete infer label...")
     else:
         num_classes_new = num_classes
 
@@ -369,27 +374,36 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
     return tgt_model, embedder_stats
 
 
-def infer_labels(loader, k = 10):
+def infer_labels(loader, k = 10 , size_infer = 3000):
     from sklearn.cluster import k_means, MiniBatchKMeans
     
     if hasattr(loader.dataset, 'tensors'):
+        print("load x and y")
         X, Y = loader.dataset.tensors[0].cpu(), loader.dataset.tensors[1].cpu().numpy()
+        print("load z")
         try:
             Z = loader.dataset.tensors[2].cpu()
         except:
             Z = None
     else:
+        print("Get tensor from dataloader....")
         X, Y, Z = get_tensors(loader.dataset)
-
+    
+    print("memory used: ",psutil.virtual_memory())
     Y = Y.reshape(len(Y), -1)
-
-    if len(Y) <= 10000:
+    print("memory used: ",psutil.virtual_memory())
+    print("before k mean")
+    if len(Y) <= size_infer:
+        print("memory used: ",psutil.virtual_memory())
         labeling_fun = lambda Y: torch.LongTensor(k_means(Y, k)[1])
         Y = labeling_fun(Y).unsqueeze(1)
+        print("memory used: ",psutil.virtual_memory())
     else:
-        kmeans = MiniBatchKMeans(n_clusters=k, batch_size=10000).fit(Y)
+        print("memory used: ",psutil.virtual_memory())
+        kmeans = MiniBatchKMeans(n_clusters=k, batch_size= size_infer).fit(Y)
         Y = torch.LongTensor(kmeans.predict(Y)).unsqueeze(1)
-
+        print("memory used: ",psutil.virtual_memory())
+    print("After k mean:....")
     if Z is None:
         return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
     return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X, Y, Z), batch_size=loader.batch_size, shuffle=True, num_workers=4, pin_memory=True), k
@@ -420,21 +434,58 @@ def load_by_class(loader, num_classes):
 
 
 
-def get_tensors(dataset):
+# def get_tensors(dataset):
+#     xs, ys, zs = [], [], []
+#     for i in range(dataset.__len__()):
+#         data = dataset.__getitem__(i)
+#         xs.append(np.expand_dims(data[0], 0))
+#         ys.append(np.expand_dims(data[1], 0))
+#         if len(data) == 3:
+#             zs.append(np.expand_dims(data[2], 0))
+
+#     xs = torch.from_numpy(np.array(xs)).squeeze(1)
+#     ys = torch.from_numpy(np.array(ys)).squeeze(1)
+
+#     if len(zs) > 0:
+#         zs = torch.from_numpy(np.array(zs)).squeeze(1)
+#     else:
+#         zs = None
+
+#     return xs, ys, zs
+
+def get_tensors(dataset, max_samples=1000, batch_size=32):
+    print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,  # Avoid multiprocessing overhead
+        pin_memory=False
+    )
+    
     xs, ys, zs = [], [], []
-    for i in range(dataset.__len__()):
-        data = dataset.__getitem__(i)
-        xs.append(np.expand_dims(data[0], 0))
-        ys.append(np.expand_dims(data[1], 0))
-        if len(data) == 3:
-            zs.append(np.expand_dims(data[2], 0))
-
-    xs = torch.from_numpy(np.array(xs)).squeeze(1)
-    ys = torch.from_numpy(np.array(ys)).squeeze(1)
-
-    if len(zs) > 0:
-        zs = torch.from_numpy(np.array(zs)).squeeze(1)
-    else:
-        zs = None
-
+    samples_processed = 0
+    
+    for batch in loader:
+        print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
+        X_batch, Y_batch = batch[0], batch[1]
+        Z_batch = batch[2] if len(batch) > 2 else None
+        
+        # Convert to NumPy for Y (since clustering requires it)
+        xs.append(X_batch.cpu())
+        ys.append(Y_batch.cpu().numpy())
+        if Z_batch is not None:
+            zs.append(Z_batch.cpu())
+            
+        samples_processed += X_batch.shape[0]
+        if samples_processed >= max_samples:
+            break
+    
+    print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
+    xs = torch.cat(xs) if xs else torch.tensor([])
+    ys = np.concatenate(ys) if ys else np.array([])
+    zs = torch.cat(zs) if zs else None
+    
+    print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
+    print(f"Memory used: {psutil.virtual_memory()}")
     return xs, ys, zs

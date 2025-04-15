@@ -66,7 +66,7 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
 
     if load_embedder(use_determined, args):
         args.embedder_epochs = 0
-
+    print("before embedder training...")
     model, embedder_stats = get_tgt_model(args, root, sample_shape, num_classes, loss, False, use_determined, context)
         
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
