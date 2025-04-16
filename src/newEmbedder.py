@@ -12,6 +12,7 @@ from math import log
 from task_configs import get_data, get_optimizer_scheduler
 from utils import conv_init, embedder_init, embedder_placeholder, adaptive_pooler, to_2tuple, set_grad_state, create_position_ids_from_inputs_embeds, l2, MMD_loss
 import copy, tqdm
+import psutil
 from utils import count_params, count_trainable_params, calculate_stats
 from TotalVarianceDistance import OptimalTV,estimate_tv_distance_hist
 from torch.utils.data import Subset, DataLoader
@@ -744,17 +745,15 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
     print("load tgt dataset...")
     tgt_train_loader, _, _, n_train, _, _, data_kwargs = get_data(root, args.dataset, args.batch_size, False, get_shape=True)
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
-    print("infer label...")
+    
 
     if args.dataset == "PSICOV":
-        print("Sample random subset of dataset for PSICOV...")
-        num_samples = 900
-        total_samples = len(tgt_train_loader.dataset)
-        indices = torch.randperm(total_samples)[:num_samples]  # randomly sample 900 indices
-        subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, indices)
-        tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1, shuffle=True)
-        del subset_dataset
+       print("Sample sub datset for Psicov...")
+       subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, range(args.lb_samples))
+       tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1)
+       del subset_dataset 
 
+    print("infer label...")
     if args.infer_label:
         tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
         
@@ -978,7 +977,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None
     if args.dataset == "PSICOV":
         print("Sample random subset of dataset for PSICOV...")
-        subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, range(900))
+        subset_dataset = torch.utils.data.Subset(tgt_train_loader.dataset, range(args.lb_samples))
         tgt_train_loader = torch.utils.data.DataLoader(subset_dataset, batch_size=1)
         del subset_dataset  
 
@@ -1292,21 +1291,56 @@ def load_by_class(loader, num_classes):
 
 
 
-def get_tensors(dataset):
+# def get_tensors(dataset):
+#     xs, ys, zs = [], [], []
+#     for i in range(dataset.__len__()):
+#         data = dataset.__getitem__(i)
+#         xs.append(np.expand_dims(data[0], 0))
+#         ys.append(np.expand_dims(data[1], 0))
+#         if len(data) == 3:
+#             zs.append(np.expand_dims(data[2], 0))
+
+#     xs = torch.from_numpy(np.array(xs)).squeeze(1)
+#     ys = torch.from_numpy(np.array(ys)).squeeze(1)
+
+#     if len(zs) > 0:
+#         zs = torch.from_numpy(np.array(zs)).squeeze(1)
+#     else:
+#         zs = None
+
+#     return xs, ys, zs
+
+def get_tensors(dataset, max_samples=400, batch_size=4):
+    print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False
+    )
+    
     xs, ys, zs = [], [], []
-    for i in range(dataset.__len__()):
-        data = dataset.__getitem__(i)
-        xs.append(np.expand_dims(data[0], 0))
-        ys.append(np.expand_dims(data[1], 0))
-        if len(data) == 3:
-            zs.append(np.expand_dims(data[2], 0))
-
-    xs = torch.from_numpy(np.array(xs)).squeeze(1)
-    ys = torch.from_numpy(np.array(ys)).squeeze(1)
-
-    if len(zs) > 0:
-        zs = torch.from_numpy(np.array(zs)).squeeze(1)
-    else:
-        zs = None
-
+    samples_processed = 0
+    
+    for batch in loader:
+        print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
+        X_batch, Y_batch = batch[0], batch[1]
+        Z_batch = batch[2] if len(batch) > 2 else None
+        
+        xs.append(X_batch.cpu())
+        ys.append(Y_batch.cpu().numpy())
+        if Z_batch is not None:
+            zs.append(Z_batch.cpu())
+            
+        samples_processed += X_batch.shape[0]
+        if samples_processed >= max_samples:
+            break
+    
+    print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
+    xs = torch.cat(xs) if xs else torch.tensor([])
+    ys = np.concatenate(ys) if ys else np.array([])
+    zs = torch.cat(zs) if zs else None
+    
+    print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
     return xs, ys, zs

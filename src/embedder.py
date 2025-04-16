@@ -440,58 +440,58 @@ def load_by_class(loader, num_classes):
 
 
 
-# def get_tensors(dataset):
-#     xs, ys, zs = [], [], []
-#     for i in range(dataset.__len__()):
-#         data = dataset.__getitem__(i)
-#         xs.append(np.expand_dims(data[0], 0))
-#         ys.append(np.expand_dims(data[1], 0))
-#         if len(data) == 3:
-#             zs.append(np.expand_dims(data[2], 0))
-
-#     xs = torch.from_numpy(np.array(xs)).squeeze(1)
-#     ys = torch.from_numpy(np.array(ys)).squeeze(1)
-
-#     if len(zs) > 0:
-#         zs = torch.from_numpy(np.array(zs)).squeeze(1)
-#     else:
-#         zs = None
-
-#     return xs, ys, zs
-
-def get_tensors(dataset, max_samples=100, batch_size=4):
-    print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
-    loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=False
-    )
-    
+def get_tensors(dataset):
     xs, ys, zs = [], [], []
-    samples_processed = 0
-    
-    for batch in loader:
-        print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
-        X_batch, Y_batch = batch[0], batch[1]
-        Z_batch = batch[2] if len(batch) > 2 else None
-        
-        xs.append(X_batch.cpu())
-        ys.append(Y_batch.cpu().numpy())
-        if Z_batch is not None:
-            zs.append(Z_batch.cpu())
-            
-        samples_processed += X_batch.shape[0]
-        if samples_processed >= max_samples:
-            break
-    
-    print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
-    xs = torch.cat(xs) if xs else torch.tensor([])
-    ys = np.concatenate(ys) if ys else np.array([])
-    zs = torch.cat(zs) if zs else None
-    
-    print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
+    for i in range(dataset.__len__()):
+        data = dataset.__getitem__(i)
+        xs.append(np.expand_dims(data[0], 0))
+        ys.append(np.expand_dims(data[1], 0))
+        if len(data) == 3:
+            zs.append(np.expand_dims(data[2], 0))
+
+    xs = torch.from_numpy(np.array(xs)).squeeze(1)
+    ys = torch.from_numpy(np.array(ys)).squeeze(1)
+
+    if len(zs) > 0:
+        zs = torch.from_numpy(np.array(zs)).squeeze(1)
+    else:
+        zs = None
+
     return xs, ys, zs
+
+# def get_tensors(dataset, max_samples=100, batch_size=4):
+#     print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
+#     loader = torch.utils.data.DataLoader(
+#         dataset,
+#         batch_size=batch_size,
+#         shuffle=False,
+#         num_workers=0,
+#         pin_memory=False
+#     )
+    
+#     xs, ys, zs = [], [], []
+#     samples_processed = 0
+    
+#     for batch in loader:
+#         print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
+#         X_batch, Y_batch = batch[0], batch[1]
+#         Z_batch = batch[2] if len(batch) > 2 else None
+        
+#         xs.append(X_batch.cpu())
+#         ys.append(Y_batch.cpu().numpy())
+#         if Z_batch is not None:
+#             zs.append(Z_batch.cpu())
+            
+#         samples_processed += X_batch.shape[0]
+#         if samples_processed >= max_samples:
+#             break
+    
+#     print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
+#     xs = torch.cat(xs) if xs else torch.tensor([])
+#     ys = np.concatenate(ys) if ys else np.array([])
+#     zs = torch.cat(zs) if zs else None
+    
+#     print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
+#     return xs, ys, zs
 
 
