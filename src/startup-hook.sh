@@ -4,6 +4,8 @@ CURPATH=`pwd`
 pip install peft
 pip install gdown
 pip install timm
+pip install torchaudio
+pip install librosa
 pip install wandb -qU
 cd otdd
 pip install -r requirements.txt
