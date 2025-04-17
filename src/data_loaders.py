@@ -666,11 +666,11 @@ def load_cosmic(root, batch_size, valid_split=-1):
 
 def load_fsd(root, batch_size, valid_split=-1):
 
-    from utils import BackgroundAddMixer, UseMixerWithProb, get_transforms_fsd_chunks, SpectrogramDataset, FSD50kEvalDataset
+    from load_fsd_dataset import BackgroundAddMixer, UseMixerWithProb, get_transforms_fsd_chunks, SpectrogramDataset, FSD50kEvalDataset
 
     feature='mel'
 
-    path = '/run/determined/workdir/shared_fs/data' 
+    path =  root + '/fsd' 
     meta_root = os.path.join(path, "chunks")
     train_manifest = "tr.csv"
     val_manifest = "val.csv"
@@ -732,6 +732,7 @@ def load_fsd(root, batch_size, valid_split=-1):
 
     for i in range(train_set.len):
         x, y = train_set.__getitem__(i)[0], train_set.__getitem__(i)[1]
+        
         if x.shape != (1, 96, 102): continue
         xs.append(x)
         ys.append(y)
