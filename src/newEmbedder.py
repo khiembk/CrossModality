@@ -755,7 +755,7 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
 
     print("infer label...")
     if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader, dataset= args.dataset )
         
     else: 
         num_classes_new = num_classes
@@ -983,7 +983,7 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
 
     print("infer label...")
     if args.infer_label:
-        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader)
+        tgt_train_loader, num_classes_new = infer_labels(tgt_train_loader, dataset= args.dataset)
         
     else: 
         num_classes_new = num_classes
@@ -1240,7 +1240,7 @@ def get_tgt_model(args, root, sample_shape, num_classes, loss, add_loss=False, u
     return tgt_model, embedder_stats
 
 
-def infer_labels(loader, k = 10):
+def infer_labels(loader, k = 10 , dataset = None):
     from sklearn.cluster import k_means, MiniBatchKMeans
     
     if hasattr(loader.dataset, 'tensors'):
@@ -1250,7 +1250,10 @@ def infer_labels(loader, k = 10):
         except:
             Z = None
     else:
-        X, Y, Z = get_tensors(loader.dataset)
+        if dataset == "PSICOV":
+           X, Y, Z = get_tensors_psicov(loader.dataset) 
+        else:     
+           X, Y, Z = get_tensors(loader.dataset)
 
     Y = Y.reshape(len(Y), -1)
 
@@ -1310,37 +1313,37 @@ def get_tensors(dataset):
 
     return xs, ys, zs
 
-# def get_tensors(dataset, max_samples=450, batch_size=4):
-#     print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
-#     loader = torch.utils.data.DataLoader(
-#         dataset,
-#         batch_size=batch_size,
-#         shuffle=False,
-#         num_workers=0,
-#         pin_memory=False
-#     )
+def get_tensors_psicov(dataset, max_samples=430, batch_size=4):
+    print(f"Starting get_tensors, max_samples={max_samples}, memory used: {psutil.virtual_memory()}")
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False
+    )
     
-#     xs, ys, zs = [], [], []
-#     samples_processed = 0
+    xs, ys, zs = [], [], []
+    samples_processed = 0
     
-#     for batch in loader:
-#         print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
-#         X_batch, Y_batch = batch[0], batch[1]
-#         Z_batch = batch[2] if len(batch) > 2 else None
+    for batch in loader:
+        print(f"Processing batch, samples_processed={samples_processed}, memory used: {psutil.virtual_memory()}")
+        X_batch, Y_batch = batch[0], batch[1]
+        Z_batch = batch[2] if len(batch) > 2 else None
         
-#         xs.append(X_batch.cpu())
-#         ys.append(Y_batch.cpu().numpy())
-#         if Z_batch is not None:
-#             zs.append(Z_batch.cpu())
+        xs.append(X_batch.cpu())
+        ys.append(Y_batch.cpu().numpy())
+        if Z_batch is not None:
+            zs.append(Z_batch.cpu())
             
-#         samples_processed += X_batch.shape[0]
-#         if samples_processed >= max_samples:
-#             break
+        samples_processed += X_batch.shape[0]
+        if samples_processed >= max_samples:
+            break
     
-#     print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
-#     xs = torch.cat(xs) if xs else torch.tensor([])
-#     ys = np.concatenate(ys) if ys else np.array([])
-#     zs = torch.cat(zs) if zs else None
+    print(f"Concatenating tensors, memory used: {psutil.virtual_memory()}")
+    xs = torch.cat(xs) if xs else torch.tensor([])
+    ys = np.concatenate(ys) if ys else np.array([])
+    zs = torch.cat(zs) if zs else None
     
-#     print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
-#     return xs, ys, zs
+    print(f"Final shapes - X: {xs.shape}, Y: {ys.shape}, Z: {zs.shape if zs is not None else None}")
+    return xs, ys, zs
