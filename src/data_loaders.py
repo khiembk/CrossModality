@@ -782,7 +782,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True 
 
     elif dataset == 'DS':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        root = './PDE_dataset/1D/diffusion-sorption'
         filename = '1D_diff-sorp_NA_NA.h5'
         reduced_resolution = 1
         reduced_resolution_t = 1
