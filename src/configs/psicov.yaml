@@ -11,12 +11,12 @@ hyperparameters:
     label_maxsamples: 16
     experiment_id: 0
     seed: 0
-    epochs: 11
+    epochs: 10
     embedder_epochs: 60
     predictor_epochs: 0
     finetune_method: all
     drop_out: 0.0
-    label_epochs: 3
+    label_epochs: 4
     batch_size: 1
     eval_batch_size: 1
     accum: 32 

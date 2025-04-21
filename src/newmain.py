@@ -171,7 +171,13 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     metric, compare_metrics = get_metric(root, args.dataset)
     decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 
-    ###########
+    ###############################################################################################
+    # Do linear probing:
+    if args.lp_ep is not None:
+        print("Begin linear probing with ep = ", args.lp_ep)
+        linear_probing(args, tgt_model,train_loader, val_loader,test_loader,metric,compare_metrics,decoder,transform,Roberta,loss,n_train,n_val,args.lp_ep)
+        print("Finish linear probing") 
+    ###############################################################################################
     print("load dic if model was trained ...")
     tgt_model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, tgt_model, None, None, n_train, freq=args.validation_freq, test=True)
     # embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
@@ -307,7 +313,16 @@ def linear_probing(args, model, train_loader, val_loader, test_loader, metric, c
             set_grad_state(model.model.swin.encoder,False)
             set_grad_state(model.predictor, True)   
     ###### load optimizer
-    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model) 
+    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, n_train=n_train)
+    if args.device == 'cuda':
+        model.cuda()
+        try:
+            loss.cuda()
+        except:
+            pass
+        if decoder is not None:
+            decoder.cuda()
+
     ###### start linear probing
     print("\n------- Start Linear Probing --------" )
     train_losses = []
@@ -581,6 +596,7 @@ if __name__ == '__main__':
     parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
     parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
     parser.add_argument('--second_train', type= bool, default= False, help='[option]determind second train model or not')
+    parser.add_argument('--lp_ep', type= int, default= None, help='Number of linear probing')
 
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
@@ -589,6 +605,7 @@ if __name__ == '__main__':
     C_entropy = args.C_entropy
     second_train = args.second_train
     freeze_bodymodel = args.freeze_bodymodel
+    lp_ep = args.lp_ep
     ############################################
     if args.config is not None:     
         import yaml
@@ -605,6 +622,7 @@ if __name__ == '__main__':
             ################################################################    
             setattr(args, 'freeze_bodymodel', freeze_bodymodel)    
             setattr(args, 'C_entropy', C_entropy)
+            setattr(args, 'lp_ep', lp_ep)
             if not hasattr(args, 'label_epochs'):
                 setattr(args, 'label_epochs', 1)         
             main(False, args, DatasetRoot= root_dataset, log_folder= log_folder, second_train= second_train)
