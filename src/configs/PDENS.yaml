@@ -1,9 +1,9 @@
-name: PDE-RD2D 
+name: PDE-NS 
 environment:
     image:
         gpu: docker.io/junhongshen/nb360:srconly
 hyperparameters:
-    dataset: PDE-RD2D
+    dataset: PDE-NS
     embedder_dataset: CIFAR10
     objective: otdd-exact
     weight: base
