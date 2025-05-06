@@ -760,7 +760,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         initial_step = 10
         t_train = 200
         single_file = True
-
+        
     elif dataset == '1DCFD':
         #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5'
@@ -779,7 +779,8 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         initial_step = 5
         t_train = 30
         single_file = True 
-
+        large = True
+        
     elif dataset == 'ADV':
         #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_Advection_Sols_beta0.4.hdf5'
