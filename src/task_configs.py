@@ -171,6 +171,11 @@ def get_config(root, args):
         loss = nrmse_loss 
         args.infer_label = True
 
+    elif dataset == 'PDE-NS':
+        dims, sample_shape, num_classes = 1, (1, 3, 384, 384) , 1
+        loss = nrmse_loss 
+        args.infer_label = True
+
     elif dataset == 'PDE-Darcy':
         dims, sample_shape, num_classes = 1, (1, 1, 64, 64), 1
         loss = nrmse_loss 

@@ -36,7 +36,10 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     print("The current device is: ", args.device)
     root = '/datasets' if use_determined else './datasets'
     if (DatasetRoot != None):
-        root = DatasetRoot + '/datasets'
+        if (args.pde):
+           root = DatasetRoot
+        else:    
+           root = DatasetRoot + '/datasets'
 
     print("Path folder dataset: ",root) 
     torch.cuda.empty_cache()
@@ -597,7 +600,7 @@ if __name__ == '__main__':
     parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
     parser.add_argument('--second_train', type= bool, default= False, help='[option]determind second train model or not')
     parser.add_argument('--lp_ep', type= int, default= None, help='Number of linear probing')
-
+    parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
@@ -606,6 +609,7 @@ if __name__ == '__main__':
     second_train = args.second_train
     freeze_bodymodel = args.freeze_bodymodel
     lp_ep = args.lp_ep
+    pde = args.pde
     ############################################
     if args.config is not None:     
         import yaml
@@ -623,6 +627,7 @@ if __name__ == '__main__':
             setattr(args, 'freeze_bodymodel', freeze_bodymodel)    
             setattr(args, 'C_entropy', C_entropy)
             setattr(args, 'lp_ep', lp_ep)
+            setattr(args, 'pde', pde)
             if not hasattr(args, 'label_epochs'):
                 setattr(args, 'label_epochs', 1)         
             main(False, args, DatasetRoot= root_dataset, log_folder= log_folder, second_train= second_train)

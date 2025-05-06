@@ -762,7 +762,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True
 
     elif dataset == '1DCFD':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5'
         reduced_resolution = 1
         reduced_resolution_t = 5
@@ -771,8 +771,17 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         t_train = 100
         single_file = True
 
+    elif dataset == 'NS':
+        filename = 'ns_incom_inhom_2d_512-65.h5'
+        reduced_resolution = 1
+        reduced_resolution_t = 1
+        reduced_batch = 1
+        initial_step = 5
+        t_train = 30
+        single_file = False  
+
     elif dataset == 'ADV':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_Advection_Sols_beta0.4.hdf5'
         reduced_resolution = 4
         reduced_resolution_t = 5
@@ -782,7 +791,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True 
 
     elif dataset == 'DS':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_diff-sorp_NA_NA.h5'
         reduced_resolution = 1
         reduced_resolution_t = 1
@@ -792,7 +801,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = False 
 
     elif dataset == 'RD':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = 'ReacDiff_Nu0.5_Rho1.0.hdf5'
         reduced_resolution = 1
         reduced_resolution_t = 1
@@ -811,7 +820,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = False
 
     elif dataset == 'Darcy':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '2D_DarcyFlow_beta0.1_Train.hdf5'
         reduced_resolution = 2
         reduced_resolution_t = 1
@@ -821,7 +830,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True
 
     elif dataset == 'RD2D':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '2D_diff-react_NA_NA.h5'
         reduced_resolution = 1
         reduced_resolution_t = 1
@@ -831,7 +840,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = False
 
     elif dataset == '2DCFD':
-        root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '2D_CFD_Rand_M1.0_Eta0.1_Zeta0.1_periodic_128_Train.hdf5'
         reduced_resolution = 2
         reduced_resolution_t = 1
