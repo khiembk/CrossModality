@@ -778,7 +778,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         reduced_batch = 1
         initial_step = 5
         t_train = 30
-        single_file = False  
+        single_file = True 
 
     elif dataset == 'ADV':
         #root = '/run/determined/workdir/shared_fs/data/PDEBench'
