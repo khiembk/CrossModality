@@ -1487,8 +1487,8 @@ class NSDataset_lite(Dataset):
     def __init__(self, filename,
                  initial_step=10,
                  saved_folder="../data/",
-                 reduced_resolution=2,  # Increased to reduce memory
-                 reduced_resolution_t=2,  # Increased to reduce memory
+                 reduced_resolution=2,
+                 reduced_resolution_t=2,
                  reduced_batch=1,
                  if_test=False,
                  test_ratio=0.1,
@@ -1538,6 +1538,7 @@ class NSDataset_lite(Dataset):
                 # Process force: (batch, x, y, 2)
                 force_data = np.array(f["force"][:len(self.data_list)], dtype=np.float32)
                 force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]
+                x_size, y_size = force_data.shape[1], force_data.shape[2]  # Store spatial dimensions
                 force_data = np.tile(force_data[:, :, :, :, np.newaxis], (1, 1, 1, 1, time_steps))
                 force_data = np.transpose(force_data, (0, 1, 2, 4, 3))  # Shape: (batch, x, y, time, 2)
                 samples.append(force_data)
@@ -1556,7 +1557,7 @@ class NSDataset_lite(Dataset):
                 # Process t: (batch, time)
                 t_data = np.array(f["t"][:len(self.data_list), :100], dtype=np.float32)
                 t_data = t_data[:, ::reduced_resolution_t, np.newaxis, np.newaxis]
-                t_data = np.tile(t_data, (1, 1, force_data.shape[1], force_data.shape[2]))
+                t_data = np.tile(t_data, (1, 1, x_size, y_size))  # Use stored dimensions
                 t_data = np.transpose(t_data, (0, 2, 3, 1))
                 samples.append(np.expand_dims(t_data, -1))
                 del t_data
@@ -1656,7 +1657,7 @@ class NSDataset_lite(Dataset):
             x = data[..., :self.initial_step, :].permute(3, 0, 1, 2)  # Shape: (channels, x, y, time)
             y = data[..., t_train-1:t_train, :].squeeze(-2).permute(3, 0, 1, 2)  # Shape: (channels, x, y)
 
-        return x, y
+        return x, y    
 class NSDataset(Dataset):
     def __init__(self, filename,
                  initial_step=10,
