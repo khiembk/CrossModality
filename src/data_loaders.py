@@ -750,7 +750,7 @@ def load_fsd(root, batch_size, valid_split=-1):
 
 def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     large = False
-
+    NS = False
     if dataset == 'Burgers':
         filename = '1D_Burgers_Sols_Nu1.0.hdf5' 
 
@@ -780,7 +780,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         t_train = 30
         single_file = True 
         large = True
-        
+        NS = True
     elif dataset == 'ADV':
         #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_Advection_Sols_beta0.4.hdf5'
@@ -853,6 +853,22 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     
     if single_file:
         if large:
+          if NS: 
+            train_data = UNetDatasetSingleLarge_NS(filename,
+                                    saved_folder=root,
+                                    reduced_resolution=reduced_resolution,
+                                    reduced_resolution_t=reduced_resolution_t,
+                                    reduced_batch=reduced_batch,
+                                    initial_step=initial_step, t_train=t_train)
+
+            val_data = UNetDatasetSingleLarge_NS(filename,
+                                  saved_folder=root,
+                                  reduced_resolution=reduced_resolution,
+                                  reduced_resolution_t=reduced_resolution_t,
+                                  reduced_batch=reduced_batch,
+                                  initial_step=initial_step,
+                                  if_test=True, x_normalizer=train_data.x_normalizer)
+          else:  
             train_data = UNetDatasetSingleLarge(filename,
                                     saved_folder=root,
                                     reduced_resolution=reduced_resolution,
@@ -1465,6 +1481,119 @@ class UNetDatasetSingleLarge(Dataset):
 
             x, y = self.data[...,0,:].permute(2, 0, 1), self.data[..., self.t_train-1:self.t_train, :].squeeze(-2).permute(2, 0, 1) 
             
+        return x, y
+
+class UNetDatasetSingleLarge_NS(Dataset):
+    def __init__(self, filename,
+                 initial_step=10,
+                 saved_folder='../data/',
+                 reduced_resolution=1,
+                 reduced_resolution_t=1,
+                 reduced_batch=1,
+                 if_test=False,
+                 test_ratio=0.1,
+                 t_train=100,
+                 x_normalizer=None):
+        """
+        Dataset class for Navier-Stokes incompressible inhomogeneous 2D dataset from PDEBench.
+        
+        :param filename: Name of the HDF5 file containing the dataset
+        :type filename: str
+        :param initial_step: Number of initial time steps used as input, defaults to 10
+        :type initial_step: int, optional
+        :param saved_folder: Directory where the dataset file is stored, defaults to '../data/'
+        :type saved_folder: str, optional
+        :param reduced_resolution: Spatial downsampling factor, defaults to 1
+        :type reduced_resolution: int, optional
+        :param reduced_resolution_t: Temporal downsampling factor, defaults to 1
+        :type reduced_resolution_t: int, optional
+        :param reduced_batch: Batch downsampling factor, defaults to 1
+        :type reduced_batch: int, optional
+        :param if_test: If True, use test split; else, use train split, defaults to False
+        :type if_test: bool, optional
+        :param test_ratio: Fraction of data to reserve for testing, defaults to 0.1
+        :type test_ratio: float, optional
+        :param t_train: Number of time steps to predict, defaults to 100
+        :type t_train: int, optional
+        :param x_normalizer: Precomputed normalizer for data, defaults to None
+        :type x_normalizer: UnitGaussianNormalizer, optional
+        """
+        # Define path to file
+        self.file_path = os.path.abspath(os.path.join(saved_folder, filename))
+        
+        # Extract dataset indices
+        with h5py.File(self.file_path, 'r') as f:
+            data_list = np.arange(len(f['force']))[::reduced_batch]
+        
+        # Split into train/test
+        test_idx = int(len(data_list) * (1 - test_ratio))
+        self.data_list = data_list[test_idx:] if if_test else data_list[:test_idx]
+        
+        # Initialize normalizer
+        if x_normalizer is None:
+            with h5py.File(self.file_path, 'r') as f:
+                # Load and preprocess data for normalization (first 100 samples to save memory)
+                fields = ['force', 'particles', 't', 'velocity']
+                samples = []
+                for field in fields:
+                    data = np.array(f[field][:100], dtype=np.float32)
+                    data = data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
+                    data = np.transpose(data, (0, 2, 3, 1))  # Shape: (batch, x, y, t)
+                    samples.append(np.expand_dims(data, -1))
+                samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, t, channels)
+                samples = torch.tensor(samples, dtype=torch.float32)
+                self.x_normalizer = UnitGaussianNormalizer(samples)
+        else:
+            self.x_normalizer = x_normalizer
+
+        # Store parameters
+        self.initial_step = initial_step
+        self.t_train = t_train
+        self.reduced_resolution = reduced_resolution
+        self.reduced_resolution_t = reduced_resolution_t
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, idx):
+        """
+        Retrieves a single data sample for the given index.
+        
+        :param idx: Index of the sample
+        :type idx: int
+        :return: Tuple of (input, target) tensors
+        :rtype: tuple
+        """
+        with h5py.File(self.file_path, 'r') as f:
+            # Initialize output tensor
+            idx_cfd = f['force'][self.data_list[idx]].shape
+            data = np.zeros([
+                idx_cfd[2] // self.reduced_resolution,  # x
+                idx_cfd[3] // self.reduced_resolution,  # y
+                mt.ceil(idx_cfd[1] / self.reduced_resolution_t),  # t
+                4  # channels: force, particles, t, velocity
+            ], dtype=np.float32)
+
+            # Load and preprocess each field
+            fields = ['force', 'particles', 't', 'velocity']
+            for i, field in enumerate(fields):
+                _data = np.array(f[field][self.data_list[idx]], dtype=np.float32)
+                _data = _data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]
+                _data = np.transpose(_data, (2, 3, 1))  # Shape: (x, y, t)
+                data[..., i] = _data
+
+            # Convert to tensor and normalize
+            data = torch.tensor(data, dtype=torch.float32)
+            data = self.x_normalizer.encode(data)
+
+            # Adjust t_train if necessary
+            t_train = min(self.t_train, data.shape[-2])
+
+            # Input: initial_step time steps, all channels
+            # Output: t_train-th time step, all channels
+            x = data[..., :self.initial_step, :].permute(3, 0, 1, 2)  # Shape: (channels, x, y, t)
+            y = data[..., t_train-1:t_train, :].squeeze(-2).permute(3, 0, 1, 2)  # Shape: (channels, x, y)
+
         return x, y
 
 class UNetDatasetMult(Dataset):
