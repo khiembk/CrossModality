@@ -1536,11 +1536,14 @@ class UNetDatasetSingleLarge_NS(Dataset):
                 fields = ['force', 'particles', 't', 'velocity']
                 samples = []
                 for field in fields:
-                    data = np.array(f[field][:100], dtype=np.float32)
+                    data = np.array(f[field][:100], dtype=np.float32)  # Shape: (batch, time, x, y)
+                    if len(data.shape) != 4:
+                        raise ValueError(f"Expected 4D data for {field}, got shape {data.shape}")
                     data = data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
-                    data = np.transpose(data, (0, 2, 3, 1))  # Shape: (batch, x, y, t)
-                    samples.append(np.expand_dims(data, -1))
-                samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, t, channels)
+                    # Transpose to (batch, x, y, time)
+                    data = np.transpose(data, (0, 2, 3, 1))
+                    samples.append(np.expand_dims(data, -1))  # Add channel dimension
+                samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, time, channels)
                 samples = torch.tensor(samples, dtype=torch.float32)
                 self.x_normalizer = UnitGaussianNormalizer(samples)
         else:
@@ -1567,10 +1570,12 @@ class UNetDatasetSingleLarge_NS(Dataset):
         with h5py.File(self.file_path, 'r') as f:
             # Initialize output tensor
             idx_cfd = f['force'][self.data_list[idx]].shape
+            if len(idx_cfd) != 4:
+                raise ValueError(f"Expected 4D data for force, got shape {idx_cfd}")
             data = np.zeros([
                 idx_cfd[2] // self.reduced_resolution,  # x
                 idx_cfd[3] // self.reduced_resolution,  # y
-                mt.ceil(idx_cfd[1] / self.reduced_resolution_t),  # t
+                mt.ceil(idx_cfd[1] / self.reduced_resolution_t),  # time
                 4  # channels: force, particles, t, velocity
             ], dtype=np.float32)
 
@@ -1578,8 +1583,10 @@ class UNetDatasetSingleLarge_NS(Dataset):
             fields = ['force', 'particles', 't', 'velocity']
             for i, field in enumerate(fields):
                 _data = np.array(f[field][self.data_list[idx]], dtype=np.float32)
+                if len(_data.shape) != 4:
+                    raise ValueError(f"Expected 4D data for {field}, got shape {_data.shape}")
                 _data = _data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]
-                _data = np.transpose(_data, (2, 3, 1))  # Shape: (x, y, t)
+                _data = np.transpose(_data, (2, 3, 1))  # Shape: (x, y, time)
                 data[..., i] = _data
 
             # Convert to tensor and normalize
@@ -1591,11 +1598,10 @@ class UNetDatasetSingleLarge_NS(Dataset):
 
             # Input: initial_step time steps, all channels
             # Output: t_train-th time step, all channels
-            x = data[..., :self.initial_step, :].permute(3, 0, 1, 2)  # Shape: (channels, x, y, t)
+            x = data[..., :self.initial_step, :].permute(3, 0, 1, 2)  # Shape: (channels, x, y, time)
             y = data[..., t_train-1:t_train, :].squeeze(-2).permute(3, 0, 1, 2)  # Shape: (channels, x, y)
 
         return x, y
-
 class UNetDatasetMult(Dataset):
     def __init__(self, filename,
                  initial_step=10,
