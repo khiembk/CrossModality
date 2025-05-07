@@ -87,7 +87,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     
     #################### Load config 
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
-    
+    print("current configs: ", args)
     if load_embedder(use_determined, args):
         print("Log: Set embedder_epochs = 0")
         args.embedder_epochs = 0
@@ -593,16 +593,18 @@ def load_state(use_determined, args, context, model, optimizer, scheduler, n_tra
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='ORCA')
     parser.add_argument('--config', type=str, default=None, help='config file name')
-    parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
     parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
     parser.add_argument('--second_train', type= bool, default= False, help='[option]determind second train model or not')
     parser.add_argument('--lp_ep', type= int, default= None, help='Number of linear probing')
+    parser.add_argument('--fm_ep', type= int, default= None, help='Number of feature matching')
+    parser.add_argument('--lm_ep', type= int, default= None, help='Number of label matching')
     parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
     args = parser.parse_args()
-    embedder_ep = args.embedder_ep
+    fm_ep = args.fm_ep
+    lm_ep = args.lm_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     C_entropy = args.C_entropy
@@ -617,8 +619,10 @@ if __name__ == '__main__':
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
             
-            if (embedder_ep != None): 
-                args.embedder_epochs = embedder_ep
+            if (fm_ep != None): 
+                args.embedder_epochs = fm_ep
+            if (lm_ep != None):
+                args.label_epochs = lm_ep    
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'FM_CE' + str(args.embedder_epochs)
             if (freeze_bodymodel):
