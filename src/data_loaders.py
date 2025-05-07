@@ -854,14 +854,14 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     if single_file:
         if large:
           if NS: 
-            train_data = UNetDatasetSingleLarge_NS(filename,
+            train_data = NSDataset(filename,
                                     saved_folder=root,
                                     reduced_resolution=reduced_resolution,
                                     reduced_resolution_t=reduced_resolution_t,
                                     reduced_batch=reduced_batch,
                                     initial_step=initial_step, t_train=t_train)
 
-            val_data = UNetDatasetSingleLarge_NS(filename,
+            val_data = NSDataset(filename,
                                   saved_folder=root,
                                   reduced_resolution=reduced_resolution,
                                   reduced_resolution_t=reduced_resolution_t,
@@ -1483,10 +1483,10 @@ class UNetDatasetSingleLarge(Dataset):
             
         return x, y
 
-class UNetDatasetSingleLarge_NS(Dataset):
+class NSDataset(Dataset):
     def __init__(self, filename,
                  initial_step=10,
-                 saved_folder='../data/',
+                 saved_folder="../data/",
                  reduced_resolution=1,
                  reduced_resolution_t=1,
                  reduced_batch=1,
@@ -1501,7 +1501,7 @@ class UNetDatasetSingleLarge_NS(Dataset):
         :type filename: str
         :param initial_step: Number of initial time steps used as input, defaults to 10
         :type initial_step: int, optional
-        :param saved_folder: Directory where the dataset file is stored, defaults to '../data/'
+        :param saved_folder: Directory where the dataset file is stored, defaults to "../data/"
         :type saved_folder: str, optional
         :param reduced_resolution: Spatial downsampling factor, defaults to 1
         :type reduced_resolution: int, optional
@@ -1521,9 +1521,9 @@ class UNetDatasetSingleLarge_NS(Dataset):
         # Define path to file
         self.file_path = os.path.abspath(os.path.join(saved_folder, filename))
         
-        # Extract dataset indices
-        with h5py.File(self.file_path, 'r') as f:
-            data_list = np.arange(len(f['force']))[::reduced_batch]
+        # Extract dataset indices (batch dimension)
+        with h5py.File(self.file_path, "r") as f:
+            data_list = np.arange(len(f["force"]))[::reduced_batch]
         
         # Split into train/test
         test_idx = int(len(data_list) * (1 - test_ratio))
@@ -1531,46 +1531,46 @@ class UNetDatasetSingleLarge_NS(Dataset):
         
         # Initialize normalizer
         if x_normalizer is None:
-            with h5py.File(self.file_path, 'r') as f:
-                # Load and preprocess data for normalization (first 100 samples to save memory)
+            with h5py.File(self.file_path, "r") as f:
                 samples = []
+                time_steps = mt.ceil(f["particles"].shape[1] / reduced_resolution_t)  # From particles/velocity
+                
                 # Process force: (batch, x, y, 2)
-                force_data = np.array(f['force'][:100], dtype=np.float32)  # Shape: (batch, x, y, 2)
-                if len(force_data.shape) != 4:
-                    raise ValueError(f"Expected 4D data for force, got shape {force_data.shape}")
-                force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]  # Downsample spatially
-                force_data = np.transpose(force_data, (0, 1, 2, 3))  # Shape: (batch, x, y, 2)
-                samples.append(force_data)  # Add 2 channels
+                force_data = np.array(f["force"][:100], dtype=np.float32)  # Shape: (batch, x, y, 2)
+                if len(force_data.shape) != 4 or force_data.shape[-1] != 2:
+                    raise ValueError(f"Expected 4D data for force with 2 channels, got shape {force_data.shape}")
+                force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]
+                force_data = np.tile(force_data[:, :, :, :, np.newaxis], (1, 1, 1, 1, time_steps))  # Shape: (batch, x, y, 2, time)
+                force_data = np.transpose(force_data, (0, 1, 2, 4, 3))  # Shape: (batch, x, y, time, 2)
+                samples.append(force_data)
                 
                 # Process particles: (batch, time, x, y, 1)
-                particles_data = np.array(f['particles'][:100], dtype=np.float32)  # Shape: (batch, time, x, y, 1)
-                if len(particles_data.shape) == 5 and particles_data.shape[-1] == 1:
-                    particles_data = particles_data.squeeze(-1)  # Shape: (batch, time, x, y)
-                if len(particles_data.shape) != 4:
-                    raise ValueError(f"Expected 4D data for particles after squeezing, got shape {particles_data.shape}")
+                particles_data = np.array(f["particles"][:100], dtype=np.float32)  # Shape: (batch, time, x, y, 1)
+                if len(particles_data.shape) != 5 or particles_data.shape[-1] != 1:
+                    raise ValueError(f"Expected 5D data for particles with 1 channel, got shape {particles_data.shape}")
+                particles_data = particles_data.squeeze(-1)  # Shape: (batch, time, x, y)
                 particles_data = particles_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
                 particles_data = np.transpose(particles_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
-                samples.append(np.expand_dims(particles_data, -1))  # Add 1 channel
+                samples.append(np.expand_dims(particles_data, -1))  # Shape: (batch, x, y, time, 1)
                 
                 # Process t: (batch, time)
-                t_data = np.array(f['t'][:100], dtype=np.float32)  # Shape: (batch, time)
+                t_data = np.array(f["t"][:100], dtype=np.float32)  # Shape: (batch, time)
                 if len(t_data.shape) != 2:
                     raise ValueError(f"Expected 2D data for t, got shape {t_data.shape}")
-                # Expand t to match spatial dimensions (batch, time, x, y)
                 t_data = t_data[:, ::reduced_resolution_t, np.newaxis, np.newaxis]  # Shape: (batch, time, 1, 1)
                 t_data = np.tile(t_data, (1, 1, force_data.shape[1], force_data.shape[2]))  # Shape: (batch, time, x, y)
                 t_data = np.transpose(t_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
-                samples.append(np.expand_dims(t_data, -1))  # Add 1 channel
+                samples.append(np.expand_dims(t_data, -1))  # Shape: (batch, x, y, time, 1)
                 
                 # Process velocity: (batch, time, x, y, 2)
-                velocity_data = np.array(f['velocity'][:100], dtype=np.float32)  # Shape: (batch, time, x, y, 2)
-                if len(velocity_data.shape) != 5:
-                    raise ValueError(f"Expected 5D data for velocity, got shape {velocity_data.shape}")
+                velocity_data = np.array(f["velocity"][:100], dtype=np.float32)  # Shape: (batch, time, x, y, 2)
+                if len(velocity_data.shape) != 5 or velocity_data.shape[-1] != 2:
+                    raise ValueError(f"Expected 5D data for velocity with 2 channels, got shape {velocity_data.shape}")
                 velocity_data = velocity_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution, :]
                 velocity_data = np.transpose(velocity_data, (0, 2, 3, 1, 4))  # Shape: (batch, x, y, time, 2)
-                samples.append(velocity_data)  # Add 2 channels
+                samples.append(velocity_data)
                 
-                # Concatenate all fields: (batch, x, y, time, 6)
+                # Concatenate: (batch, x, y, time, 6)
                 samples = np.concatenate(samples, axis=-1)
                 samples = torch.tensor(samples, dtype=torch.float32)
                 self.x_normalizer = UnitGaussianNormalizer(samples)
@@ -1595,43 +1595,44 @@ class UNetDatasetSingleLarge_NS(Dataset):
         :return: Tuple of (input, target) tensors
         :rtype: tuple
         """
-        with h5py.File(self.file_path, 'r') as f:
-            # Initialize output tensor based on force shape
-            idx_cfd = f['force'][self.data_list[idx]].shape  # Shape: (x, y, 2)
+        with h5py.File(self.file_path, "r") as f:
+            time_steps = mt.ceil(f["particles"].shape[1] / self.reduced_resolution_t)
+            idx_cfd = f["force"][self.data_list[idx]].shape  # Shape: (x, y, 2)
+            
+            # Initialize output tensor
             data = np.zeros([
                 idx_cfd[1] // self.reduced_resolution,  # x
                 idx_cfd[2] // self.reduced_resolution,  # y
-                mt.ceil(1000 / self.reduced_resolution_t),  # time (from particles/velocity)
+                time_steps,  # time
                 6  # channels: force (2), particles (1), t (1), velocity (2)
             ], dtype=np.float32)
 
             # Process force
-            force_data = np.array(f['force'][self.data_list[idx]], dtype=np.float32)  # Shape: (x, y, 2)
-            force_data = force_data[::reduced_resolution, ::reduced_resolution, :]  # Downsample spatially
-            force_data = np.tile(force_data[:, :, :, np.newaxis], (1, 1, 1, data.shape[2]))  # Shape: (x, y, 2, time)
+            force_data = np.array(f["force"][self.data_list[idx]], dtype=np.float32)  # Shape: (x, y, 2)
+            force_data = force_data[::self.reduced_resolution, ::self.reduced_resolution, :]
+            force_data = np.tile(force_data[:, :, :, np.newaxis], (1, 1, 1, time_steps))  # Shape: (x, y, 2, time)
             force_data = np.transpose(force_data, (0, 1, 3, 2))  # Shape: (x, y, time, 2)
-            data[..., 0:2] = force_data  # Assign 2 channels
+            data[..., 0:2] = force_data
 
             # Process particles
-            particles_data = np.array(f['particles'][self.data_list[idx]], dtype=np.float32)  # Shape: (batch, time, x, y, 1)
-            if len(particles_data.shape) == 5 and particles_data.shape[-1] == 1:
-                particles_data = particles_data.squeeze(-1)  # Shape: (batch, time, x, y)
+            particles_data = np.array(f["particles"][self.data_list[idx]], dtype=np.float32)  # Shape: (time, x, y, 1)
+            particles_data = particles_data.squeeze(-1)  # Shape: (time, x, y)
             particles_data = particles_data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]
             particles_data = np.transpose(particles_data, (2, 3, 1))  # Shape: (x, y, time)
-            data[..., 2] = particles_data  # Assign 1 channel
+            data[..., 2] = particles_data
 
             # Process t
-            t_data = np.array(f['t'][self.data_list[idx]], dtype=np.float32)  # Shape: (time,)
+            t_data = np.array(f["t"][self.data_list[idx]], dtype=np.float32)  # Shape: (time,)
             t_data = t_data[::self.reduced_resolution_t, np.newaxis, np.newaxis]  # Shape: (time, 1, 1)
             t_data = np.tile(t_data, (1, data.shape[0], data.shape[1]))  # Shape: (time, x, y)
             t_data = np.transpose(t_data, (1, 2, 0))  # Shape: (x, y, time)
-            data[..., 3] = t_data  # Assign 1 channel
+            data[..., 3] = t_data
 
             # Process velocity
-            velocity_data = np.array(f['velocity'][self.data_list[idx]], dtype=np.float32)  # Shape: (batch, time, x, y, 2)
+            velocity_data = np.array(f["velocity"][self.data_list[idx]], dtype=np.float32)  # Shape: (time, x, y, 2)
             velocity_data = velocity_data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]
             velocity_data = np.transpose(velocity_data, (2, 3, 1, 4))  # Shape: (x, y, time, 2)
-            data[..., 4:6] = velocity_data  # Assign 2 channels
+            data[..., 4:6] = velocity_data
 
             # Convert to tensor and normalize
             data = torch.tensor(data, dtype=torch.float32)
