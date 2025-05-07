@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-
+import gc
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #device = 'cuda'
 """Data Loaders"""
