@@ -773,9 +773,9 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
 
     elif dataset == 'NS':
         filename = 'ns_incom_inhom_2d_512-65.h5'
-        reduced_resolution = 1
-        reduced_resolution_t = 1
-        reduced_batch = 1
+        reduced_resolution = 2
+        reduced_resolution_t = 2
+        reduced_batch = 2
         initial_step = 5
         t_train = 30
         single_file = True 
@@ -854,7 +854,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     if single_file:
         if large:
           if NS: 
-            train_data = NSDataset(filename,
+            train_data = NSDataset_lite(filename,
                                     saved_folder=root,
                                     reduced_resolution=reduced_resolution,
                                     reduced_resolution_t=reduced_resolution_t,
@@ -1483,6 +1483,180 @@ class UNetDatasetSingleLarge(Dataset):
             
         return x, y
 
+class NSDataset_lite(Dataset):
+    def __init__(self, filename,
+                 initial_step=10,
+                 saved_folder="../data/",
+                 reduced_resolution=2,  # Increased to reduce memory
+                 reduced_resolution_t=2,  # Increased to reduce memory
+                 reduced_batch=1,
+                 if_test=False,
+                 test_ratio=0.1,
+                 t_train=100,
+                 x_normalizer=None):
+        """
+        Dataset class for Navier-Stokes incompressible inhomogeneous 2D dataset from PDEBench.
+        
+        :param filename: Name of the HDF5 file containing the dataset
+        :type filename: str
+        :param initial_step: Number of initial time steps used as input, defaults to 10
+        :type initial_step: int, optional
+        :param saved_folder: Directory where the dataset file is stored, defaults to "../data/"
+        :type saved_folder: str, optional
+        :param reduced_resolution: Spatial downsampling factor, defaults to 2
+        :type reduced_resolution: int, optional
+        :param reduced_resolution_t: Temporal downsampling factor, defaults to 2
+        :type reduced_resolution_t: int, optional
+        :param reduced_batch: Batch downsampling factor, defaults to 1
+        :type reduced_batch: int, optional
+        :param if_test: If True, use test split; else, use train split, defaults to False
+        :type if_test: bool, optional
+        :param test_ratio: Fraction of data to reserve for testing, defaults to 0.1
+        :type test_ratio: float, optional
+        :param t_train: Number of time steps to predict, defaults to 100
+        :type t_train: int, optional
+        :param x_normalizer: Precomputed normalizer for data, defaults to None
+        :type x_normalizer: UnitGaussianNormalizer, optional
+        """
+        # Define path to file
+        self.file_path = os.path.abspath(os.path.join(saved_folder, filename))
+        
+        # Extract dataset indices (batch dimension)
+        with h5py.File(self.file_path, "r") as f:
+            data_list = np.arange(len(f["force"]))[::reduced_batch]
+        
+        # Split into train/test
+        test_idx = int(len(data_list) * (1 - test_ratio))
+        self.data_list = data_list[test_idx:] if if_test else data_list[:test_idx]
+        
+        # Initialize normalizer
+        if x_normalizer is None:
+            with h5py.File(self.file_path, "r") as f:
+                samples = []
+                time_steps = mt.ceil(100 / reduced_resolution_t)  # Limit to 100 time steps for normalization
+                
+                # Process force: (batch, x, y, 2)
+                force_data = np.array(f["force"][:len(self.data_list)], dtype=np.float32)
+                force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]
+                force_data = np.tile(force_data[:, :, :, :, np.newaxis], (1, 1, 1, 1, time_steps))
+                force_data = np.transpose(force_data, (0, 1, 2, 4, 3))  # Shape: (batch, x, y, time, 2)
+                samples.append(force_data)
+                del force_data
+                gc.collect()
+                
+                # Process particles: (batch, time, x, y, 1)
+                particles_data = np.array(f["particles"][:len(self.data_list), :100], dtype=np.float32)
+                particles_data = particles_data.squeeze(-1)
+                particles_data = particles_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
+                particles_data = np.transpose(particles_data, (0, 2, 3, 1))
+                samples.append(np.expand_dims(particles_data, -1))
+                del particles_data
+                gc.collect()
+                
+                # Process t: (batch, time)
+                t_data = np.array(f["t"][:len(self.data_list), :100], dtype=np.float32)
+                t_data = t_data[:, ::reduced_resolution_t, np.newaxis, np.newaxis]
+                t_data = np.tile(t_data, (1, 1, force_data.shape[1], force_data.shape[2]))
+                t_data = np.transpose(t_data, (0, 2, 3, 1))
+                samples.append(np.expand_dims(t_data, -1))
+                del t_data
+                gc.collect()
+                
+                # Process velocity: (batch, time, x, y, 2)
+                velocity_data = np.array(f["velocity"][:len(self.data_list), :100], dtype=np.float32)
+                velocity_data = velocity_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution, :]
+                velocity_data = np.transpose(velocity_data, (0, 2, 3, 1, 4))
+                samples.append(velocity_data)
+                del velocity_data
+                gc.collect()
+                
+                # Concatenate and normalize
+                samples = np.concatenate(samples, axis=-1)
+                samples = torch.tensor(samples, dtype=torch.float32)
+                self.x_normalizer = UnitGaussianNormalizer(samples)
+                del samples
+                gc.collect()
+        else:
+            self.x_normalizer = x_normalizer
+
+        # Store parameters
+        self.initial_step = initial_step
+        self.t_train = t_train
+        self.reduced_resolution = reduced_resolution
+        self.reduced_resolution_t = reduced_resolution_t
+
+    def __len__(self):
+        return len(self.data_list)
+
+    def __getitem__(self, idx):
+        """
+        Retrieves a single data sample for the given index.
+        
+        :param idx: Index of the sample
+        :type idx: int
+        :return: Tuple of (input, target) tensors
+        :rtype: tuple
+        """
+        with h5py.File(self.file_path, "r") as f:
+            time_steps = mt.ceil(f["particles"].shape[1] / self.reduced_resolution_t)
+            idx_cfd = f["force"][self.data_list[idx]].shape  # Shape: (x, y, 2)
+            
+            # Initialize output tensor
+            data = np.zeros([
+                idx_cfd[1] // self.reduced_resolution,  # x
+                idx_cfd[2] // self.reduced_resolution,  # y
+                time_steps,  # time
+                6  # channels: force (2), particles (1), t (1), velocity (2)
+            ], dtype=np.float32)
+
+            # Process force
+            force_data = np.array(f["force"][self.data_list[idx]], dtype=np.float32)
+            force_data = force_data[::self.reduced_resolution, ::self.reduced_resolution, :]
+            force_data = np.tile(force_data[:, :, :, np.newaxis], (1, 1, 1, time_steps))
+            force_data = np.transpose(force_data, (0, 1, 3, 2))
+            data[..., 0:2] = force_data
+            del force_data
+            gc.collect()
+
+            # Process particles
+            particles_data = np.array(f["particles"][self.data_list[idx]], dtype=np.float32)
+            particles_data = particles_data.squeeze(-1)
+            particles_data = particles_data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]
+            particles_data = np.transpose(particles_data, (2, 3, 1))
+            data[..., 2] = particles_data
+            del particles_data
+            gc.collect()
+
+            # Process t
+            t_data = np.array(f["t"][self.data_list[idx]], dtype=np.float32)
+            t_data = t_data[::self.reduced_resolution_t, np.newaxis, np.newaxis]
+            t_data = np.tile(t_data, (1, data.shape[0], data.shape[1]))
+            t_data = np.transpose(t_data, (1, 2, 0))
+            data[..., 3] = t_data
+            del t_data
+            gc.collect()
+
+            # Process velocity
+            velocity_data = np.array(f["velocity"][self.data_list[idx]], dtype=np.float32)
+            velocity_data = velocity_data[:, ::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]
+            velocity_data = np.transpose(velocity_data, (2, 3, 1, 4))
+            data[..., 4:6] = velocity_data
+            del velocity_data
+            gc.collect()
+
+            # Convert to tensor and normalize
+            data = torch.tensor(data, dtype=torch.float32)
+            data = self.x_normalizer.encode(data)
+
+            # Adjust t_train if necessary
+            t_train = min(self.t_train, data.shape[-2])
+
+            # Input: initial_step time steps, all channels
+            # Output: t_train-th time step, all channels
+            x = data[..., :self.initial_step, :].permute(3, 0, 1, 2)  # Shape: (channels, x, y, time)
+            y = data[..., t_train-1:t_train, :].squeeze(-2).permute(3, 0, 1, 2)  # Shape: (channels, x, y)
+
+        return x, y
 class NSDataset(Dataset):
     def __init__(self, filename,
                  initial_step=10,
