@@ -1671,7 +1671,9 @@ class NSDataset(Dataset):
             # Output: last time step, all channels
             x = x_sliced.permute(2, 3, 0, 1)  
             x = x.reshape(-1, x.shape[1], x.shape[2], x.shape[3])
-            y = data[..., time_steps-1, :].permute(2, 0, 1)  # Shape: (channels=6, x, y)
+            #crop
+            x = x[:, :224, :224]
+            y = data[..., time_steps-1, :].permute(2, 0, 1)  
 
         return x, y
 class UNetDatasetMult(Dataset):
