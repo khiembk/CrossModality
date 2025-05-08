@@ -2056,7 +2056,7 @@ class MatReader(object):
 
 
 # normalization, pointwise gaussian
-class UnitGaussianNormalizer_NS(object):
+class UnitGaussianNormalizer(object):
     def __init__(self, x, eps=0.00001):
         super(UnitGaussianNormalizer, self).__init__()
 
@@ -2510,7 +2510,7 @@ def load_text(root, batch_size, valid_split=-1, maxsize=None):
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_data, train_labels), batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     return train_loader, None, train_loader
 
-class UnitGaussianNormalizer:
+class UnitGaussianNormalizer_NS:
     def __init__(self, x, eps=1e-5):
         # Handle both 4D (x, y, time, channels) and 5D (batch, x, y, time, channels) inputs
         self.is_5d = len(x.shape) == 5
