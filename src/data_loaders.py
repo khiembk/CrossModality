@@ -1522,7 +1522,7 @@ class NSDataset(Dataset):
         :type x_normalizer: UnitGaussianNormalizer, optional
         """
         # Define path to file
-        self.file_path = Path(os.path.join(saved_folder, filename)).resolve()
+        self.file_path = os.path.abspath(saved_folder +  '/' + filename)
         assert filename.endswith(".h5"), "HDF5 data is assumed!!"
 
         # Extract dataset indices (batch dimension)
