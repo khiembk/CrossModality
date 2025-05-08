@@ -1669,7 +1669,7 @@ class NSDataset(Dataset):
 
             # Input: initial_step time steps, all channels
             # Output: last time step, all channels
-            x = x_sliced.permute(3, 0, 1, 2)  # Shape: (channels=6, x, y, time)
+            x = x_sliced.permute(2, 3, 0, 1)  
             x = x.reshape(-1, x.shape[1], x.shape[2], x.shape[3])
             y = data[..., time_steps-1, :].permute(2, 0, 1)  # Shape: (channels=6, x, y)
 
