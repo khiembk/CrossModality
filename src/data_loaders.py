@@ -776,7 +776,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         reduced_resolution = 2
         reduced_resolution_t = 5
         reduced_batch = 2
-        initial_step = 5
+        initial_step = 10
         t_train = 30
         single_file = True 
         large = True
@@ -1582,7 +1582,7 @@ class NSDataset(Dataset):
                 # Concatenate and normalize
                 samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, time, 6)
                 samples = torch.tensor(samples, dtype=torch.float32)
-                self.x_normalizer = UnitGaussianNormalizer(samples)
+                self.x_normalizer = UnitGaussianNormalizer_NS(samples)
                 del samples
                 gc.collect()
         else:
@@ -2056,7 +2056,7 @@ class MatReader(object):
 
 
 # normalization, pointwise gaussian
-class UnitGaussianNormalizer(object):
+class UnitGaussianNormalizer_NS(object):
     def __init__(self, x, eps=0.00001):
         super(UnitGaussianNormalizer, self).__init__()
 
@@ -2510,3 +2510,29 @@ def load_text(root, batch_size, valid_split=-1, maxsize=None):
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_data, train_labels), batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     return train_loader, None, train_loader
 
+class UnitGaussianNormalizer:
+    def __init__(self, x, eps=1e-5):
+        # Handle both 4D (x, y, time, channels) and 5D (batch, x, y, time, channels) inputs
+        self.is_5d = len(x.shape) == 5
+        reduce_dims = (0, 1, 2, 3) if self.is_5d else (0, 1, 2)
+        self.mean = torch.mean(x, dim=reduce_dims, keepdim=True)
+        self.std = torch.std(x, dim=reduce_dims, keepdim=True)
+        self.eps = eps
+
+    def encode(self, x):
+        # Ensure broadcasting works for both 4D and 5D inputs
+        mean = self.mean
+        std = self.std
+        if self.is_5d and len(x.shape) == 4:
+            # Squeeze singleton batch dimension for 4D input
+            mean = mean.squeeze(0)
+            std = std.squeeze(0)
+        return (x - mean) / (std + self.eps)
+
+    def decode(self, x):
+        mean = self.mean
+        std = self.std
+        if self.is_5d and len(x.shape) == 4:
+            mean = mean.squeeze(0)
+            std = std.squeeze(0)
+        return x * (std + self.eps) + mean
