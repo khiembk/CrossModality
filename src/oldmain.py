@@ -20,7 +20,10 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
     
     root = '/datasets' if use_determined else './datasets'
     if (DatasetRoot != None):
-        root = DatasetRoot + '/datasets'
+        if (args.pde):
+           root = DatasetRoot
+        else:    
+           root = DatasetRoot + '/datasets'
     ########### log file 
     log_file = f"{args.dataset}_{args.finetune_method}.log"
     if (log_folder is not None):
@@ -414,17 +417,18 @@ if __name__ == '__main__':
     parser.add_argument('--embedder_ep', type= int, default= None, help='embedder epoch training')
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
-    
+    parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
+    pde = args.pde
     if args.config is not None:     
         import yaml
         with open(args.config, 'r') as stream:
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
-            
+            setattr(args, 'pde', pde)
             if (embedder_ep != None): 
                 args.embedder_epochs = embedder_ep
             if (args.embedder_epochs > 0):
