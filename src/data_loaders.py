@@ -1495,7 +1495,8 @@ class NSDataset(Dataset):
                  if_test=False,
                  test_ratio=0.1,
                  num_samples_max=-1,
-                 x_normalizer=None):
+                 x_normalizer=None,
+                ):
         """
         Dataset class for Navier-Stokes incompressible inhomogeneous 2D dataset from PDEBench,
         compatible with pre-trained SwinBase.
@@ -1524,7 +1525,7 @@ class NSDataset(Dataset):
         :type x_normalizer: UnitGaussianNormalizer, optional
         """
         # Define path to file
-        self.file_path = Path(os.path.join(saved_folder, filename)).resolve()
+        self.file_path = os.path.abspath(saved_folder +  '/' + filename)
         assert filename.endswith(".h5"), "HDF5 data is assumed!!"
 
         # Extract dataset indices (batch dimension)
