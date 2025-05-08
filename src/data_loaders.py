@@ -1486,32 +1486,34 @@ class UNetDatasetSingleLarge(Dataset):
 class NSDataset(Dataset):
     def __init__(self,
                  filename,
-                 initial_step=10,
-                 saved_folder="/kaggle/input/navier-stokes-dataset/",
-                 reduced_resolution=2,
-                 reduced_resolution_t=2,
+                 saved_folder,
+                 reduced_resolution=1,
+                 reduced_resolution_t=1,
                  reduced_batch=1,
+                 initial_step=10,
+                 t_train=100,
                  if_test=False,
                  test_ratio=0.1,
                  num_samples_max=-1,
-                 x_normalizer=None,
-                 t_train = 1000):
+                 x_normalizer=None):
         """
         Dataset class for Navier-Stokes incompressible inhomogeneous 2D dataset from PDEBench,
         compatible with pre-trained SwinBase.
 
         :param filename: Name of the HDF5 file containing the dataset
         :type filename: str
-        :param initial_step: Number of initial time steps used as input, defaults to 10
-        :type initial_step: int, optional
-        :param saved_folder: Directory where the dataset file is stored, defaults to Kaggle input path
-        :type saved_folder: str, optional
-        :param reduced_resolution: Spatial downsampling factor, defaults to 2
+        :param saved_folder: Directory where the dataset file is stored
+        :type saved_folder: str
+        :param reduced_resolution: Spatial downsampling factor, defaults to 1
         :type reduced_resolution: int, optional
-        :param reduced_resolution_t: Temporal downsampling factor, defaults to 2
+        :param reduced_resolution_t: Temporal downsampling factor, defaults to 1
         :type reduced_resolution_t: int, optional
         :param reduced_batch: Batch downsampling factor, defaults to 1
         :type reduced_batch: int, optional
+        :param initial_step: Number of initial time steps used as input, defaults to 10
+        :type initial_step: int, optional
+        :param t_train: Number of time steps to use for training, defaults to 100
+        :type t_train: int, optional
         :param if_test: If True, use test split; else, use train split, defaults to False
         :type if_test: bool, optional
         :param test_ratio: Fraction of data to reserve for testing, defaults to 0.1
@@ -1522,7 +1524,7 @@ class NSDataset(Dataset):
         :type x_normalizer: UnitGaussianNormalizer, optional
         """
         # Define path to file
-        self.file_path = os.path.abspath(saved_folder +  '/' + filename)
+        self.file_path = Path(os.path.join(saved_folder, filename)).resolve()
         assert filename.endswith(".h5"), "HDF5 data is assumed!!"
 
         # Extract dataset indices (batch dimension)
@@ -1541,12 +1543,14 @@ class NSDataset(Dataset):
         if x_normalizer is None:
             with h5py.File(self.file_path, "r") as f:
                 samples = []
-                time_steps = mt.ceil(100 / reduced_resolution_t)  # Limit to 100 time steps for normalization
+                time_steps = mt.ceil(t_train / reduced_resolution_t)  # Use t_train for normalization
+                spatial_size = 224  # Target size for SwinBase
                 
                 # Process force: (batch, x, y, 2)
                 force_data = np.array(f["force"][:len(self.data_list)], dtype=np.float32)
                 force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]
-                x_size, y_size = force_data.shape[1], force_data.shape[2]  # Store spatial dimensions
+                force_data = force_data[:, :spatial_size, :spatial_size, :]  # Crop to 224x224
+                x_size, y_size = force_data.shape[1], force_data.shape[2]
                 force_data = np.tile(force_data[:, :, :, :, np.newaxis], (1, 1, 1, 1, time_steps))
                 force_data = np.transpose(force_data, (0, 1, 2, 4, 3))  # Shape: (batch, x, y, time, 2)
                 samples.append(force_data)
@@ -1554,16 +1558,17 @@ class NSDataset(Dataset):
                 gc.collect()
                 
                 # Process particles: (batch, time, x, y, 1)
-                particles_data = np.array(f["particles"][:len(self.data_list), :100], dtype=np.float32)
+                particles_data = np.array(f["particles"][:len(self.data_list), :t_train], dtype=np.float32)
                 particles_data = particles_data.squeeze(-1)  # Shape: (batch, time, x, y)
                 particles_data = particles_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
+                particles_data = particles_data[:, :, :spatial_size, :spatial_size]  # Crop to 224x224
                 particles_data = np.transpose(particles_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
                 samples.append(np.expand_dims(particles_data, -1))
                 del particles_data
                 gc.collect()
                 
                 # Process t: (batch, time)
-                t_data = np.array(f["t"][:len(self.data_list), :100], dtype=np.float32)
+                t_data = np.array(f["t"][:len(self.data_list), :t_train], dtype=np.float32)
                 t_data = t_data[:, ::reduced_resolution_t, np.newaxis, np.newaxis]
                 t_data = np.tile(t_data, (1, 1, x_size, y_size))
                 t_data = np.transpose(t_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
@@ -1572,8 +1577,9 @@ class NSDataset(Dataset):
                 gc.collect()
                 
                 # Process velocity: (batch, time, x, y, 2)
-                velocity_data = np.array(f["velocity"][:len(self.data_list), :100], dtype=np.float32)
-                velocity_data = velocity_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution, :]  # Shape: (batch, time, x, y, 2)
+                velocity_data = np.array(f["velocity"][:len(self.data_list), :t_train], dtype=np.float32)
+                velocity_data = velocity_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution, :]
+                velocity_data = velocity_data[:, :, :spatial_size, :spatial_size, :]  # Crop to 224x224
                 velocity_data = np.transpose(velocity_data, (0, 2, 3, 1, 4))  # Shape: (batch, x, y, time, 2)
                 samples.append(velocity_data)
                 del velocity_data
@@ -1582,7 +1588,9 @@ class NSDataset(Dataset):
                 # Concatenate and normalize
                 samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, time, 6)
                 samples = torch.tensor(samples, dtype=torch.float32)
+                print(f"samples shape for normalizer: {samples.shape}")
                 self.x_normalizer = UnitGaussianNormalizer_NS(samples)
+                print(f"normalizer mean shape: {self.x_normalizer.mean.shape}, std shape: {self.x_normalizer.std.shape}")
                 del samples
                 gc.collect()
         else:
@@ -1592,6 +1600,8 @@ class NSDataset(Dataset):
         self.initial_step = initial_step
         self.reduced_resolution = reduced_resolution
         self.reduced_resolution_t = reduced_resolution_t
+        self.t_train = t_train
+        self.spatial_size = 224  # Fixed for SwinBase
 
     def __len__(self):
         return len(self.data_list)
@@ -1607,12 +1617,12 @@ class NSDataset(Dataset):
         """
         with h5py.File(self.file_path, "r") as f:
             time_steps = mt.ceil(f["particles"].shape[1] / self.reduced_resolution_t)
-            idx_cfd = f["force"][self.data_list[idx]].shape  # Shape: (x, y, 2)
+            time_steps = min(time_steps, mt.ceil(self.t_train / self.reduced_resolution_t))
             
-            # Initialize output tensor
+            # Initialize output tensor with cropped size
             data = np.zeros([
-                idx_cfd[0] // self.reduced_resolution,  # x
-                idx_cfd[1] // self.reduced_resolution,  # y
+                self.spatial_size,  # x
+                self.spatial_size,  # y
                 time_steps,  # time
                 6  # channels: force (2), particles (1), t (1), velocity (2)
             ], dtype=np.float32)
@@ -1620,6 +1630,7 @@ class NSDataset(Dataset):
             # Process force
             force_data = np.array(f["force"][self.data_list[idx]], dtype=np.float32)  # Shape: (x, y, 2)
             force_data = force_data[::self.reduced_resolution, ::self.reduced_resolution, :]
+            force_data = force_data[:self.spatial_size, :self.spatial_size, :]  # Crop to 224x224
             force_data = np.tile(force_data[:, :, :, np.newaxis], (1, 1, 1, time_steps))  # Shape: (x, y, 2, time)
             force_data = np.transpose(force_data, (0, 1, 3, 2))  # Shape: (x, y, time, 2)
             data[..., 0:2] = force_data
@@ -1627,36 +1638,38 @@ class NSDataset(Dataset):
             gc.collect()
 
             # Process particles
-            particles_data = np.array(f["particles"][self.data_list[idx]], dtype=np.float32)  # Shape: (time, x, y, 1)
+            particles_data = np.array(f["particles"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time, x, y, 1)
             particles_data = particles_data.squeeze(-1)  # Shape: (time, x, y)
             particles_data = particles_data[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]  # Shape: (time//reduced_resolution_t, x//reduced_resolution, y//reduced_resolution)
+            particles_data = particles_data[:, :self.spatial_size, :self.spatial_size]  # Crop to 224x224
             particles_data = np.transpose(particles_data, (1, 2, 0))  # Shape: (x, y, time)
             data[..., 2] = particles_data
             del particles_data
             gc.collect()
 
             # Process t
-            t_data = np.array(f["t"][self.data_list[idx]], dtype=np.float32)  # Shape: (time,)
+            t_data = np.array(f["t"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time,)
             t_data = t_data[::self.reduced_resolution_t, np.newaxis, np.newaxis]  # Shape: (time, 1, 1)
-            t_data = np.tile(t_data, (1, data.shape[0], data.shape[1]))  # Shape: (time, x, y)
+            t_data = np.tile(t_data, (1, self.spatial_size, self.spatial_size))  # Shape: (time, x, y)
             t_data = np.transpose(t_data, (1, 2, 0))  # Shape: (x, y, time)
             data[..., 3] = t_data
             del t_data
             gc.collect()
 
             # Process velocity
-            velocity_data = np.array(f["velocity"][self.data_list[idx]], dtype=np.float32)  # Shape: (time, x, y, 2)
+            velocity_data = np.array(f["velocity"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time, x, y, 2)
             velocity_data = velocity_data[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]  # Shape: (time//reduced_resolution_t, x//reduced_resolution, y//reduced_resolution, 2)
+            velocity_data = velocity_data[:, :self.spatial_size, :self.spatial_size, :]  # Crop to 224x224
             velocity_data = np.transpose(velocity_data, (1, 2, 0, 3))  # Shape: (x, y, time, 2)
             data[..., 4:6] = velocity_data
             del velocity_data
             gc.collect()
 
             # Convert to tensor and normalize
-            data = torch.tensor(data, dtype=torch.float32)  # Shape: (x, y, time, 6)
+            data = torch.tensor(data, dtype=torch.float32)  # Shape: (224, 224, time, 6)
+            print(f"data shape before normalization: {data.shape}")
             data = self.x_normalizer.encode(data)
-
-        
+            print(f"data shape after normalization: {data.shape}")
 
             # Adjust time steps if necessary
             time_steps = min(time_steps, data.shape[2])
@@ -1664,16 +1677,19 @@ class NSDataset(Dataset):
 
             # Debug shapes
             print(f"data shape before slicing: {data.shape}")
-            x_sliced = data[..., :initial_step, :]
-            print(f"x shape after slicing: {x_sliced.shape}")
+            x_sliced = data[:, :, :initial_step, :]  # Shape: (224, 224, initial_step, 6)
+            print(f"x_sliced shape: {x_sliced.shape}")
 
-            # Input: initial_step time steps, all channels
-            # Output: last time step, all channels
-            x = x_sliced.permute(2, 3, 0, 1)  
-            x = x.reshape(-1, x.shape[1], x.shape[2], x.shape[3])
-            #crop
-            x = x[:, :224, :224]
-            y = data[..., time_steps-1, :].permute(2, 0, 1)  
+            # Input: all initial_step time steps, reshaped to treat time as batch
+            x = x_sliced.permute(2, 3, 0, 1)  # Shape: (initial_step, 6, 224, 224)
+            x = x.reshape(-1, x.shape[1], x.shape[2], x.shape[3])  # Shape: (initial_step, 6, 224, 224)
+            # Ensure spatial dimensions are 224x224 (already cropped)
+            x = x[:, :, :224, :224]  # Redundant but safe
+            print(f"x shape after reshape and crop: {x.shape}")
+
+            # Output: last time step
+            y = data[:, :, time_steps-1, :].permute(2, 0, 1)  # Shape: (6, 224, 224)
+            print(f"y shape: {y.shape}")
 
         return x, y
 class UNetDatasetMult(Dataset):
