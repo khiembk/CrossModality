@@ -14,7 +14,6 @@ from utils import conv_init, embedder_init, embedder_placeholder, adaptive_poole
 import copy, tqdm
 import psutil
 from utils import count_params, count_trainable_params, calculate_stats
-from TotalVarianceDistance import OptimalTV,estimate_tv_distance_hist
 from torch.utils.data import Subset, DataLoader
 
 def otdd(feats, ys=None, src_train_dataset=None, exact=True):
