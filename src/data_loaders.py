@@ -1483,6 +1483,7 @@ class UNetDatasetSingleLarge(Dataset):
             
         return x, y
 
+
 class NSDataset(Dataset):
     def __init__(self,
                  filename,
@@ -1608,91 +1609,66 @@ class NSDataset(Dataset):
         return len(self.data_list)
 
     def __getitem__(self, idx):
-        """
-        Retrieves a single data sample for the given index.
-        
-        :param idx: Index of the sample
-        :type idx: int
-        :return: Tuple of (input, target) tensors
-        :rtype: tuple
-        """
-        with h5py.File(self.file_path, "r") as f:
-            time_steps = mt.ceil(f["particles"].shape[1] / self.reduced_resolution_t)
-            time_steps = min(time_steps, mt.ceil(self.t_train / self.reduced_resolution_t))
+       """
+    Returns input tensor shaped as (C, H, W) and target as (C_out, H, W)
+    where C = num_physical_fields * initial_step (stacked as channels)
+       """
+       with h5py.File(self.file_path, "r") as f:
+        # Load and process all fields
+        data = np.zeros([
+            self.spatial_size,  # x
+            self.spatial_size,  # y
+            mt.ceil(self.t_train / self.reduced_resolution_t),  # time
+            6  # channels: force(2) + particles(1) + t(1) + velocity(2)
+        ], dtype=np.float32)
+
+        # Process force --------------------------------------------------------
+        force = f["force"][self.data_list[idx]]  # (x, y, 2)
+        force = force[::self.reduced_resolution, ::self.reduced_resolution, :]
+        force = force[:self.spatial_size, :self.spatial_size, :]  # Crop
+        force = np.repeat(force[:, :, :, np.newaxis], data.shape[2], axis=3)  # (x, y, 2, time)
+        data[..., 0:2] = np.transpose(force, (0, 1, 3, 2))  # (x, y, time, 2)
+
+        # Process particles ----------------------------------------------------
+        particles = f["particles"][self.data_list[idx], :self.t_train]  # (time, x, y, 1)
+        particles = particles[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, 0]
+        particles = particles[:, :self.spatial_size, :self.spatial_size]  # (time, h, w)
+        data[:, :, :particles.shape[0], 2] = np.transpose(particles, (1, 2, 0))
+
+        # Process time ---------------------------------------------------------
+        times = f["t"][self.data_list[idx], :self.t_train]  # (time,)
+        times = times[::self.reduced_resolution_t]
+        data[:, :, :len(times), 3] = np.broadcast_to(
+            times, (self.spatial_size, self.spatial_size, len(times)))
             
-            # Initialize output tensor with cropped size
-            data = np.zeros([
-                self.spatial_size,  # x
-                self.spatial_size,  # y
-                time_steps,  # time
-                6  # channels: force (2), particles (1), t (1), velocity (2)
-            ], dtype=np.float32)
+        # Process velocity -----------------------------------------------------
+        velocity = f["velocity"][self.data_list[idx], :self.t_train]  # (time, x, y, 2)
+        velocity = velocity[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]
+        velocity = velocity[:, :self.spatial_size, :self.spatial_size, :]  # (time, h, w, 2)
+        data[..., 4:6] = np.transpose(velocity, (1, 2, 0, 3))  # (h, w, time, 2)
 
-            # Process force
-            force_data = np.array(f["force"][self.data_list[idx]], dtype=np.float32)  # Shape: (x, y, 2)
-            force_data = force_data[::self.reduced_resolution, ::self.reduced_resolution, :]
-            force_data = force_data[:self.spatial_size, :self.spatial_size, :]  # Crop to 224x224
-            force_data = np.tile(force_data[:, :, :, np.newaxis], (1, 1, 1, time_steps))  # Shape: (x, y, 2, time)
-            force_data = np.transpose(force_data, (0, 1, 3, 2))  # Shape: (x, y, time, 2)
-            data[..., 0:2] = force_data
-            del force_data
-            gc.collect()
+        # Convert to tensor and normalize --------------------------------------
+        data = torch.tensor(data, dtype=torch.float32)  # (H, W, T, C=6)
+        data = self.x_normalizer.encode(data)
 
-            # Process particles
-            particles_data = np.array(f["particles"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time, x, y, 1)
-            particles_data = particles_data.squeeze(-1)  # Shape: (time, x, y)
-            particles_data = particles_data[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution]  # Shape: (time//reduced_resolution_t, x//reduced_resolution, y//reduced_resolution)
-            particles_data = particles_data[:, :self.spatial_size, :self.spatial_size]  # Crop to 224x224
-            particles_data = np.transpose(particles_data, (1, 2, 0))  # Shape: (x, y, time)
-            data[..., 2] = particles_data
-            del particles_data
-            gc.collect()
+        # Handle time steps ---------------------------------------------------
+        actual_time_steps = data.shape[2]
+        initial_step = min(self.initial_step, actual_time_steps)
 
-            # Process t
-            t_data = np.array(f["t"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time,)
-            t_data = t_data[::self.reduced_resolution_t, np.newaxis, np.newaxis]  # Shape: (time, 1, 1)
-            t_data = np.tile(t_data, (1, self.spatial_size, self.spatial_size))  # Shape: (time, x, y)
-            t_data = np.transpose(t_data, (1, 2, 0))  # Shape: (x, y, time)
-            data[..., 3] = t_data
-            del t_data
-            gc.collect()
+        # Input: Stack initial time steps as channels --------------------------
+        x = data[..., :initial_step, :]  # (H, W, T_init, C=6)
+        x = x.permute(3, 2, 0, 1)  # (C=6, T_init, H, W)
+        x = x.reshape(-1, x.shape[2], x.shape[3])  # (C*T_init, H, W)
+        
+        # Add batch dimension (will be handled by DataLoader)
+        # x shape: (C*T_init, H, W) -> model expects (batch, C, H, W)
 
-            # Process velocity
-            velocity_data = np.array(f["velocity"][self.data_list[idx], :self.t_train], dtype=np.float32)  # Shape: (time, x, y, 2)
-            velocity_data = velocity_data[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]  # Shape: (time//reduced_resolution_t, x//reduced_resolution, y//reduced_resolution, 2)
-            velocity_data = velocity_data[:, :self.spatial_size, :self.spatial_size, :]  # Crop to 224x224
-            velocity_data = np.transpose(velocity_data, (1, 2, 0, 3))  # Shape: (x, y, time, 2)
-            data[..., 4:6] = velocity_data
-            del velocity_data
-            gc.collect()
-
-            # Convert to tensor and normalize
-            data = torch.tensor(data, dtype=torch.float32)  # Shape: (224, 224, time, 6)
-            print(f"data shape before normalization: {data.shape}")
-            data = self.x_normalizer.encode(data)
-            print(f"data shape after normalization: {data.shape}")
-
-            # Adjust time steps if necessary
-            time_steps = min(time_steps, data.shape[2])
-            initial_step = min(self.initial_step, time_steps)
-
-            # Debug shapes
-            print(f"data shape before slicing: {data.shape}")
-            x_sliced = data[:, :, :initial_step, :]  # Shape: (224, 224, initial_step, 6)
-            print(f"x_sliced shape: {x_sliced.shape}")
-
-            # Input: all initial_step time steps, reshaped to treat time as batch
-            x = x_sliced.permute(2, 3, 0, 1)  # Shape: (initial_step, 6, 224, 224)
-            x = x.reshape(-1, x.shape[1], x.shape[2], x.shape[3])  # Shape: (initial_step, 6, 224, 224)
-            # Ensure spatial dimensions are 224x224 (already cropped)
-            x = x[:, :, :224, :224]  # Redundant but safe
-            print(f"x shape after reshape and crop: {x.shape}")
-
-            # Output: last time step
-            y = data[:, :, time_steps-1, :].permute(2, 0, 1)  # Shape: (6, 224, 224)
-            print(f"y shape: {y.shape}")
+        # Target: Last time step (all channels) -------------------------------
+        y = data[..., -1, :]  # (H, W, C=6)
+        y = y.permute(2, 0, 1)  # (C, H, W)
 
         return x, y
+
 class UNetDatasetMult(Dataset):
     def __init__(self, filename,
                  initial_step=10,
