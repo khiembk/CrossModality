@@ -140,12 +140,23 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
     print("current configs: ", args)
     
-    tgt_model = NSAdaptedWrapper(input_channels=60, output_channels=6)    
+    input_chanels = 60
+    output_chanels = 6
+    tgt_model = NSAdaptedWrapper(input_channels= input_chanels, output_channels= output_chanels)    
+    print("Input chanels: ", input_chanels)
+    print("Output chanels: ", output_chanels)
+    
     print("final model: ", tgt_model)
 
     ######### load tgt dataset 
     print("load tgt dataset ...")
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
+    ###########################################################################
+    print("<<< Test size of dataSet >>>")
+    sample_x, sample_y = train_loader[0]
+    print(f"Input shape: {sample_x.shape}")  # Should be (6*10, 224, 224) = (60, 224, 224)
+    print(f"Target shape: {sample_y.shape}")  # Should be (6, 224, 224)
+    ###########################################################################
     metric, compare_metrics = get_metric(root, args.dataset)
     decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 

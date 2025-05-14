@@ -773,7 +773,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
 
     elif dataset == 'NS':
         filename = 'ns_incom_inhom_2d_512-65.h5'
-        reduced_resolution = 2
+        reduced_resolution = 1
         reduced_resolution_t = 5
         reduced_batch = 2
         initial_step = 10
