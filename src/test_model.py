@@ -14,8 +14,8 @@ from task_configs import get_data, get_config, get_metric, get_optimizer_schedul
 from newEmbedder import get_src_train_dataset_1Dmodel
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from newEmbedder import wrapper2D, wrapper1D, Embeddings1D, Embeddings2D
 
-# Load CoNLL-2003 dataset
 
 
 class CustomRoberta(torch.nn.Module):
