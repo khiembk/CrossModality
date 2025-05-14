@@ -16,19 +16,20 @@ from test_model import get_src_predictor1D
 from newEmbedder import label_matching_by_entropy, label_matching_by_conditional_entropy,Embeddings1D, Embeddings2D
 
 class NSAdaptedWrapper(wrapper2D):
-    def __init__(self, input_channels=60, output_channels=6, img_size=224):
-        # Initialize with NS-specific parameters
+    def __init__(self, input_channels=60, output_channels=6, img_size=224 ):
+        # Initialize parent with NS-specific parameters
         super().__init__(
-            input_shape=(3, input_channels, img_size, img_size),  # (batch, channels, H, W)
+            input_shape=(input_channels, img_size, img_size),
             output_shape=(output_channels, img_size, img_size),
             use_embedder=True,
-            classification=False,  # Force regression mode
+              # Force regression mode
             drop_out=0.1,
-            from_scratch=False
+            from_scratch=False,
+            
         )
         
         # Replace the predictor with NS-specific decoder
-        self.predictor = nn.Sequential(
+        self.decoder = nn.Sequential(
             nn.Conv2d(1024, 512, 3, padding=1),
             nn.ReLU(),
             nn.Upsample(scale_factor=2, mode='bilinear'),
@@ -42,35 +43,70 @@ class NSAdaptedWrapper(wrapper2D):
             nn.ReLU(),
             nn.Conv2d(64, output_channels, 1)
         )
-
-        # Enable gradients for fine-tuning
-        set_grad_state(self.model.swin, True)
-        set_grad_state(self.predictor, True)
-
-class NSReadyEmbeddings(Embeddings2D):
-    def __init__(self, input_channels=60):
-        super().__init__(
-            input_shape=(3, input_channels, 224, 224),  # Example shape
+        
+        # Modify embedder for NS data
+        self.model.swin.embeddings = NSEmbedder(
+            input_shape=(input_channels, img_size, img_size),
             patch_size=4,
             embed_dim=128,
-            img_size=224
+            img_size=img_size,
+            config=self.model.config
+        )
+        
+        # Enable gradients for fine-tuning
+        set_grad_state(self.model.swin, True)
+        set_grad_state(self.decoder, True)
+
+    def forward(self, x):
+        # Input shape: [B, 60, 224, 224]
+        if self.output_raw:
+            return self.model.swin.embeddings(x)[0]
+        
+        # Process through Swin
+        x = self.model(x).logits if hasattr(self.model, 'logits') else self.model(x)
+        
+        # Reshape if needed (handles both classification and regression outputs)
+        if x.dim() == 3:  # [B, seq_len, features]
+            B, L, C = x.shape
+            H = W = int(L**0.5)
+            x = x.view(B, H, W, C).permute(0, 3, 1, 2)
+        
+        # Process through decoder
+        return self.decoder(x)  # Output shape: [B, 6, 224, 224]
+
+class NSEmbedder(Embeddings2D):
+    """Custom embedder for Navier-Stokes data"""
+    def __init__(self, input_shape, patch_size, embed_dim, img_size, config):
+        super().__init__(
+            input_shape=input_shape,
+            patch_size=patch_size,
+            embed_dim=embed_dim,
+            img_size=img_size,
+            config=config
         )
         
         # Adjust projection for NS input channels
         self.projection = nn.Conv2d(
-            in_channels=input_channels,
-            out_channels=128,
-            kernel_size=4,
-            stride=4
+            input_shape[0],  # Use channel dimension
+            embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size
         )
-        nn.init.kaiming_normal_(self.projection.weight)
-
+        
+        # Custom initialization for fluid data
+        nn.init.kaiming_normal_(self.projection.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.zeros_(self.projection.bias)
+        
     def forward(self, x):
-        # Skip resizing if already 224x224
-        _, _, h, w = x.shape
-        x = self.maybe_pad(x, h, w)
-        x = self.projection(x)
-        x = x.flatten(2).transpose(1, 2)
+        # Skip resize if already correct size
+        B, C, H, W = x.shape
+        
+        # Pad if needed
+        x = self.maybe_pad(x, H, W)
+        
+        # Project and flatten
+        x = self.projection(x)  # [B, embed_dim, H', W']
+        x = x.flatten(2).transpose(1, 2)  # [B, num_patches, embed_dim]
         return self.norm(x), self.patched_dimensions
     
 def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None, second_train = False):
