@@ -14,100 +14,66 @@ from utils import count_params, count_trainable_params, calculate_stats
 from newEmbedder import get_pretrain_model2D_feature, wrapper1D, wrapper2D, feature_matching_tgt_model,get_src_train_dataset_1Dmodel
 from test_model import get_src_predictor1D
 from newEmbedder import label_matching_by_entropy, label_matching_by_conditional_entropy,Embeddings1D, Embeddings2D
+from transformers import SwinModel
+class Wrapper2DNS(torch.nn.Module):
+    def __init__(self, input_shape, output_shape):
+        super().__init__()
+        # Define architecture parameters
+        arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
+        self.model = SwinModel.from_pretrained(arch_name)
 
-class NSAdaptedWrapper(wrapper2D):
-    def __init__(self, input_channels=60, output_channels=6, img_size=224 ):
-        # Initialize parent with NS-specific parameters
-        super().__init__(
-            input_shape=(input_channels, img_size, img_size),
-            output_shape=(output_channels, img_size, img_size),
-            use_embedder=True,
-              # Force regression mode
-            drop_out=0.1,
-            from_scratch=False,
-            
+        # Modify the projection layer to accept 36 input channels
+        original_projection = self.model.embeddings.patch_embeddings.projection
+        new_projection = nn.Conv2d(
+            input_shape[1],  # 36 channels
+            original_projection.out_channels,  # 128 for Swin-Base
+            kernel_size=original_projection.kernel_size,  # 4x4
+            stride=original_projection.stride,  # 4
+            padding=original_projection.padding  # 0
         )
         
-        # Replace the predictor with NS-specific decoder
+        # Initialize new projection weights
+        with torch.no_grad():
+            # Copy pre-trained weights for the first 3 channels
+            new_projection.weight[:, :3, :, :] = original_projection.weight.clone()
+            # Repeat or initialize remaining channels (simple repetition here)
+            for i in range(3, input_shape[1], 3):
+                end = min(i + 3, input_shape[1])
+                new_projection.weight[:, i:end, :, :] = original_projection.weight[:, :end - i, :, :].clone()
+            # Bias can be copied directly
+            new_projection.bias[:] = original_projection.bias.clone()
+
+        self.model.embeddings.patch_embeddings.projection = new_projection
+
+        # Define decoder to upsample from [batch_size, 1024, 7, 7] to [batch_size, 6, 224, 224]
         self.decoder = nn.Sequential(
-            nn.Conv2d(1024, 512, 3, padding=1),
+            nn.Conv2d(1024, 512, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(512, 256, 3, padding=1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 7x7 -> 14x14
+            nn.Conv2d(512, 256, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(256, 128, 3, padding=1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 14x14 -> 28x28
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(128, 64, 3, padding=1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 28x28 -> 56x56
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, output_channels, 1)
+            nn.Upsample(scale_factor=4, mode='bilinear', align_corners=False),  # 56x56 -> 224x224
+            nn.Conv2d(64, output_shape[1], kernel_size=1)  # 64 -> 6 channels
         )
-        
-        # Modify embedder for NS data
-        self.model.swin.embeddings = NSEmbedder(
-            input_shape=(input_channels, img_size, img_size),
-            patch_size=4,
-            embed_dim=128,
-            img_size=img_size,
-            config=self.model.config
-        )
-        
-        # Enable gradients for fine-tuning
-        set_grad_state(self.model.swin, True)
-        set_grad_state(self.decoder, True)
 
     def forward(self, x):
-        # Input shape: [B, 60, 224, 224]
-        if self.output_raw:
-            return self.model.swin.embeddings(x)[0]
+        # Pass through Swin encoder
+        encoder_output = self.model(x).last_hidden_state  # [batch_size, 49, 1024]
+        batch_size = x.shape[0]
         
-        # Process through Swin
-        x = self.model(x).logits if hasattr(self.model, 'logits') else self.model(x)
+        # Reshape to spatial format: [batch_size, 1024, 7, 7]
+        encoder_output = encoder_output.view(batch_size, 7, 7, 1024).permute(0, 3, 1, 2)
         
-        # Reshape if needed (handles both classification and regression outputs)
-        if x.dim() == 3:  # [B, seq_len, features]
-            B, L, C = x.shape
-            H = W = int(L**0.5)
-            x = x.view(B, H, W, C).permute(0, 3, 1, 2)
-        
-        # Process through decoder
-        return self.decoder(x)  # Output shape: [B, 6, 224, 224]
+        # Decode to target shape
+        output = self.decoder(encoder_output)  # [batch_size, 6, 224, 224]
+        return output
 
-class NSEmbedder(Embeddings2D):
-    """Custom embedder for Navier-Stokes data"""
-    def __init__(self, input_shape, patch_size, embed_dim, img_size, config):
-        super().__init__(
-            input_shape=input_shape,
-            patch_size=patch_size,
-            embed_dim=embed_dim,
-            img_size=img_size,
-            config=config
-        )
-        
-        # Adjust projection for NS input channels
-        self.projection = nn.Conv2d(
-            input_shape[0],  # Use channel dimension
-            embed_dim,
-            kernel_size=patch_size,
-            stride=patch_size
-        )
-        
-        # Custom initialization for fluid data
-        nn.init.kaiming_normal_(self.projection.weight, mode='fan_out', nonlinearity='relu')
-        nn.init.zeros_(self.projection.bias)
-        
-    def forward(self, x):
-        # Skip resize if already correct size
-        B, C, H, W = x.shape
-        
-        # Pad if needed
-        x = self.maybe_pad(x, H, W)
-        
-        # Project and flatten
-        x = self.projection(x)  # [B, embed_dim, H', W']
-        x = x.flatten(2).transpose(1, 2)  # [B, num_patches, embed_dim]
-        return self.norm(x), self.patched_dimensions
     
 def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None, second_train = False):
     
@@ -140,11 +106,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
     print("current configs: ", args)
     
-    input_chanels = 60
-    output_chanels = 6
-    tgt_model = NSAdaptedWrapper(input_channels= input_chanels, output_channels= output_chanels)    
-    print("Input chanels: ", input_chanels)
-    print("Output chanels: ", output_chanels)
+    input_shape = torch.Size([1, 36, 224, 224])
+    output_shape = torch.Size([1, 6, 224, 224])
+    tgt_model = Wrapper2DNS(input_shape, output_shape)
     
     print("final model: ", tgt_model)
 
@@ -153,9 +117,9 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     train_loader, val_loader, test_loader, n_train, n_val, n_test, data_kwargs = get_data(root, args.dataset, args.batch_size, args.valid_split)
     ###########################################################################
     print("<<< Test size of dataSet >>>")
-    sample_x, sample_y = train_loader[0]
-    print(f"Input shape: {sample_x.shape}")  # Should be (6*10, 224, 224) = (60, 224, 224)
-    print(f"Target shape: {sample_y.shape}")  # Should be (6, 224, 224)
+    sample_x, sample_y = next(iter(train_loader))
+    print(f"Input shape: {sample_x.shape}")   # Should be (60, 224, 224)
+    print(f"Target shape: {sample_y.shape}")  
     ###########################################################################
     metric, compare_metrics = get_metric(root, args.dataset)
     decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
@@ -211,7 +175,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
 
         if ep % args.validation_freq == 0 or ep == args.epochs + args.predictor_epochs - 1: 
                 
-            val_loss, val_score = evaluate(context, args, tgt_model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
+            val_loss, val_score = evaluate(context, args, tgt_model, train_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
 
             train_losses.append(train_loss)
             train_score.append(val_score)
