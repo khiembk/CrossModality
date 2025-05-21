@@ -774,10 +774,10 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     elif dataset == 'NS':
         filename = 'ns_incom_inhom_2d_512-65.h5'
         reduced_resolution = 1
-        reduced_resolution_t = 5
-        reduced_batch = 2
+        reduced_resolution_t = 1
+        reduced_batch = 1
         initial_step = 10
-        t_train = 30
+        t_train = 100
         single_file = True 
         large = True
         NS = True
@@ -860,7 +860,8 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
                                     reduced_resolution_t=reduced_resolution_t,
                                     reduced_batch=reduced_batch,
                                     initial_step=initial_step, t_train=t_train)
-
+            
+            print("len of train NS", len(train_data))
             val_data = NSDataset(filename,
                                   saved_folder=root,
                                   reduced_resolution=reduced_resolution,
@@ -1532,7 +1533,7 @@ class NSDataset(Dataset):
         # Extract dataset indices (batch dimension)
         with h5py.File(self.file_path, "r") as f:
             data_list = np.arange(len(f["force"]))[::reduced_batch]
-        
+            print("len data list: ", len(data_list))
         # Apply num_samples_max
         if num_samples_max > 0:
             data_list = data_list[:min(num_samples_max, len(data_list))]
@@ -1614,6 +1615,7 @@ class NSDataset(Dataset):
     where C = num_physical_fields * initial_step (stacked as channels)
        """
        with h5py.File(self.file_path, "r") as f:
+        print(f"Number of samples in HDF5: {len(f['t'])}")
         # Load and process all fields
         data = np.zeros([
             self.spatial_size,  # x

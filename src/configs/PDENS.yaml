@@ -19,7 +19,7 @@ hyperparameters:
     target_seq_len: 64
     
     drop_out: 0
-    batch_size: 4
+    batch_size: 1
     eval_batch_size: 1000
     accum: 1
     clip: 1
