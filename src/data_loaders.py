@@ -762,7 +762,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True
         
     elif dataset == '1DCFD':
-        #root = '/run/determined/workdir/shared_fs/data/PDEBench'
+        root = '/mnt/disk2/khiemtt/CrossModality/src/PDE_dataset/1D'
         filename = '1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5'
         reduced_resolution = 1
         reduced_resolution_t = 5
@@ -771,16 +771,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         t_train = 100
         single_file = True
 
-    elif dataset == 'NS':
-        filename = 'ns_incom_inhom_2d_512-65.h5'
-        reduced_resolution = 1
-        reduced_resolution_t = 1
-        reduced_batch = 1
-        initial_step = 10
-        t_train = 100
-        single_file = True 
-        large = True
-        NS = True
+
     elif dataset == 'ADV':
         #root = '/run/determined/workdir/shared_fs/data/PDEBench'
         filename = '1D_Advection_Sols_beta0.4.hdf5'
@@ -853,23 +844,6 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     
     if single_file:
         if large:
-          if NS: 
-            train_data = NSDataset(filename,
-                                    saved_folder=root,
-                                    reduced_resolution=reduced_resolution,
-                                    reduced_resolution_t=reduced_resolution_t,
-                                    reduced_batch=reduced_batch,
-                                    initial_step=initial_step, t_train=t_train)
-            
-            print("len of train NS", len(train_data))
-            val_data = NSDataset(filename,
-                                  saved_folder=root,
-                                  reduced_resolution=reduced_resolution,
-                                  reduced_resolution_t=reduced_resolution_t,
-                                  reduced_batch=reduced_batch,
-                                  initial_step=initial_step,
-                                  if_test=True, x_normalizer=train_data.x_normalizer)
-          else:  
             train_data = UNetDatasetSingleLarge(filename,
                                     saved_folder=root,
                                     reduced_resolution=reduced_resolution,
@@ -1485,191 +1459,6 @@ class UNetDatasetSingleLarge(Dataset):
         return x, y
 
 
-class NSDataset(Dataset):
-    def __init__(self,
-                 filename,
-                 saved_folder,
-                 reduced_resolution=1,
-                 reduced_resolution_t=1,
-                 reduced_batch=1,
-                 initial_step=10,
-                 t_train=100,
-                 if_test=False,
-                 test_ratio=0.1,
-                 num_samples_max=-1,
-                 x_normalizer=None,
-                ):
-        """
-        Dataset class for Navier-Stokes incompressible inhomogeneous 2D dataset from PDEBench,
-        compatible with pre-trained SwinBase.
-
-        :param filename: Name of the HDF5 file containing the dataset
-        :type filename: str
-        :param saved_folder: Directory where the dataset file is stored
-        :type saved_folder: str
-        :param reduced_resolution: Spatial downsampling factor, defaults to 1
-        :type reduced_resolution: int, optional
-        :param reduced_resolution_t: Temporal downsampling factor, defaults to 1
-        :type reduced_resolution_t: int, optional
-        :param reduced_batch: Batch downsampling factor, defaults to 1
-        :type reduced_batch: int, optional
-        :param initial_step: Number of initial time steps used as input, defaults to 10
-        :type initial_step: int, optional
-        :param t_train: Number of time steps to use for training, defaults to 100
-        :type t_train: int, optional
-        :param if_test: If True, use test split; else, use train split, defaults to False
-        :type if_test: bool, optional
-        :param test_ratio: Fraction of data to reserve for testing, defaults to 0.1
-        :type test_ratio: float, optional
-        :param num_samples_max: Maximum number of samples to use, defaults to -1 (all)
-        :type num_samples_max: int, optional
-        :param x_normalizer: Precomputed normalizer for data, defaults to None
-        :type x_normalizer: UnitGaussianNormalizer, optional
-        """
-        # Define path to file
-        self.file_path = os.path.abspath(saved_folder +  '/' + filename)
-        assert filename.endswith(".h5"), "HDF5 data is assumed!!"
-
-        # Extract dataset indices (batch dimension)
-        with h5py.File(self.file_path, "r") as f:
-            data_list = np.arange(len(f["force"]))[::reduced_batch]
-            print("len data list: ", len(data_list))
-        # Apply num_samples_max
-        if num_samples_max > 0:
-            data_list = data_list[:min(num_samples_max, len(data_list))]
-
-        # Split into train/test
-        test_idx = int(len(data_list) * (1 - test_ratio))
-        self.data_list = data_list[test_idx:] if if_test else data_list[:test_idx]
-        
-        # Initialize normalizer
-        if x_normalizer is None:
-            with h5py.File(self.file_path, "r") as f:
-                samples = []
-                time_steps = mt.ceil(t_train / reduced_resolution_t)  # Use t_train for normalization
-                spatial_size = 224  # Target size for SwinBase
-                
-                # Process force: (batch, x, y, 2)
-                force_data = np.array(f["force"][:len(self.data_list)], dtype=np.float32)
-                force_data = force_data[:, ::reduced_resolution, ::reduced_resolution, :]
-                force_data = force_data[:, :spatial_size, :spatial_size, :]  # Crop to 224x224
-                x_size, y_size = force_data.shape[1], force_data.shape[2]
-                force_data = np.tile(force_data[:, :, :, :, np.newaxis], (1, 1, 1, 1, time_steps))
-                force_data = np.transpose(force_data, (0, 1, 2, 4, 3))  # Shape: (batch, x, y, time, 2)
-                samples.append(force_data)
-                del force_data
-                gc.collect()
-                
-                # Process particles: (batch, time, x, y, 1)
-                particles_data = np.array(f["particles"][:len(self.data_list), :t_train], dtype=np.float32)
-                particles_data = particles_data.squeeze(-1)  # Shape: (batch, time, x, y)
-                particles_data = particles_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution]
-                particles_data = particles_data[:, :, :spatial_size, :spatial_size]  # Crop to 224x224
-                particles_data = np.transpose(particles_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
-                samples.append(np.expand_dims(particles_data, -1))
-                del particles_data
-                gc.collect()
-                
-                # Process t: (batch, time)
-                t_data = np.array(f["t"][:len(self.data_list), :t_train], dtype=np.float32)
-                t_data = t_data[:, ::reduced_resolution_t, np.newaxis, np.newaxis]
-                t_data = np.tile(t_data, (1, 1, x_size, y_size))
-                t_data = np.transpose(t_data, (0, 2, 3, 1))  # Shape: (batch, x, y, time)
-                samples.append(np.expand_dims(t_data, -1))
-                del t_data
-                gc.collect()
-                
-                # Process velocity: (batch, time, x, y, 2)
-                velocity_data = np.array(f["velocity"][:len(self.data_list), :t_train], dtype=np.float32)
-                velocity_data = velocity_data[:, ::reduced_resolution_t, ::reduced_resolution, ::reduced_resolution, :]
-                velocity_data = velocity_data[:, :, :spatial_size, :spatial_size, :]  # Crop to 224x224
-                velocity_data = np.transpose(velocity_data, (0, 2, 3, 1, 4))  # Shape: (batch, x, y, time, 2)
-                samples.append(velocity_data)
-                del velocity_data
-                gc.collect()
-                
-                # Concatenate and normalize
-                samples = np.concatenate(samples, axis=-1)  # Shape: (batch, x, y, time, 6)
-                samples = torch.tensor(samples, dtype=torch.float32)
-                print(f"samples shape for normalizer: {samples.shape}")
-                self.x_normalizer = UnitGaussianNormalizer_NS(samples)
-                print(f"normalizer mean shape: {self.x_normalizer.mean.shape}, std shape: {self.x_normalizer.std.shape}")
-                del samples
-                gc.collect()
-        else:
-            self.x_normalizer = x_normalizer
-
-        # Store parameters
-        self.initial_step = initial_step
-        self.reduced_resolution = reduced_resolution
-        self.reduced_resolution_t = reduced_resolution_t
-        self.t_train = t_train
-        self.spatial_size = 224  # Fixed for SwinBase
-
-    def __len__(self):
-        return len(self.data_list)
-
-    def __getitem__(self, idx):
-       """
-    Returns input tensor shaped as (C, H, W) and target as (C_out, H, W)
-    where C = num_physical_fields * initial_step (stacked as channels)
-       """
-       with h5py.File(self.file_path, "r") as f:
-        print(f"Number of samples in HDF5: {len(f['t'])}")
-        # Load and process all fields
-        data = np.zeros([
-            self.spatial_size,  # x
-            self.spatial_size,  # y
-            mt.ceil(self.t_train / self.reduced_resolution_t),  # time
-            6  # channels: force(2) + particles(1) + t(1) + velocity(2)
-        ], dtype=np.float32)
-
-        # Process force --------------------------------------------------------
-        force = f["force"][self.data_list[idx]]  # (x, y, 2)
-        force = force[::self.reduced_resolution, ::self.reduced_resolution, :]
-        force = force[:self.spatial_size, :self.spatial_size, :]  # Crop
-        force = np.repeat(force[:, :, :, np.newaxis], data.shape[2], axis=3)  # (x, y, 2, time)
-        data[..., 0:2] = np.transpose(force, (0, 1, 3, 2))  # (x, y, time, 2)
-
-        # Process particles ----------------------------------------------------
-        particles = f["particles"][self.data_list[idx], :self.t_train]  # (time, x, y, 1)
-        particles = particles[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, 0]
-        particles = particles[:, :self.spatial_size, :self.spatial_size]  # (time, h, w)
-        data[:, :, :particles.shape[0], 2] = np.transpose(particles, (1, 2, 0))
-
-        # Process time ---------------------------------------------------------
-        times = f["t"][self.data_list[idx], :self.t_train]  # (time,)
-        times = times[::self.reduced_resolution_t]
-        data[:, :, :len(times), 3] = np.broadcast_to(
-            times, (self.spatial_size, self.spatial_size, len(times)))
-            
-        # Process velocity -----------------------------------------------------
-        velocity = f["velocity"][self.data_list[idx], :self.t_train]  # (time, x, y, 2)
-        velocity = velocity[::self.reduced_resolution_t, ::self.reduced_resolution, ::self.reduced_resolution, :]
-        velocity = velocity[:, :self.spatial_size, :self.spatial_size, :]  # (time, h, w, 2)
-        data[..., 4:6] = np.transpose(velocity, (1, 2, 0, 3))  # (h, w, time, 2)
-
-        # Convert to tensor and normalize --------------------------------------
-        data = torch.tensor(data, dtype=torch.float32)  # (H, W, T, C=6)
-        data = self.x_normalizer.encode(data)
-
-        # Handle time steps ---------------------------------------------------
-        actual_time_steps = data.shape[2]
-        initial_step = min(self.initial_step, actual_time_steps)
-
-        # Input: Stack initial time steps as channels --------------------------
-        x = data[..., :initial_step, :]  # (H, W, T_init, C=6)
-        x = x.permute(3, 2, 0, 1)  # (C=6, T_init, H, W)
-        x = x.reshape(-1, x.shape[2], x.shape[3])  # (C*T_init, H, W)
-        
-        # Add batch dimension (will be handled by DataLoader)
-        # x shape: (C*T_init, H, W) -> model expects (batch, C, H, W)
-
-        # Target: Last time step (all channels) -------------------------------
-        y = data[..., -1, :]  # (H, W, C=6)
-        y = y.permute(2, 0, 1)  # (C, H, W)
-
-        return x, y
 
 class UNetDatasetMult(Dataset):
     def __init__(self, filename,
