@@ -111,10 +111,7 @@ class wrapper1D(torch.nn.Module):
         self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
 
         if use_embedder:
-            if  len(input_shape) == 3 :
-                self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim= 768, target_seq_len= target_seq_len, dense=self.dense)
-            else: 
-                self.embedder = Embeddings2D(input_shape, 4, config=self.model.config, embed_dim= 768, img_size = 224)
+            self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim= 768, target_seq_len= target_seq_len, dense=self.dense)
             embedder_init(self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
@@ -335,46 +332,9 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
     ##### clearn cache
     del src_ys, src_feats, src_train_loader
     torch.cuda.empty_cache()
-    ###### get pre-trained pridictor
-    #src_model.predictor = get_top_k_predictor_2Dmodel(source_classes)
-    ##### return src_model and src_train_dataset         
+    
     return src_model, src_train_dataset
-    
-###############################################################################################################################################
-def get_top_k_predictor_2Dmodel(k=1000):
-    # Load pre-trained Swin model (ImageNet-22K)
-    arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
-    output_dim = 1024  # Swin Base hidden size
-    model = SwinForImageClassification.from_pretrained(arch_name)
-
-    # Extract the original classifier (21K classes)
-    old_classifier = model.classifier  # Linear(1024, 21843)
-    
-    # Copy weight from the top K classes
-    old_weights = old_classifier.weight.data  # Shape: (21843, 1024)
-    new_weights = old_weights[:k, :].clone()  # Shape: (k, 1024), use `.clone()` to avoid modifying the original tensor
-
-    # Copy bias if it exists
-    if old_classifier.bias is not None:
-        new_bias = old_classifier.bias.data[:k].clone()  # Shape: (k,)
-    else:
-        new_bias = None
-
-    # Create a new classifier with K classes
-    new_classifier = nn.Linear(output_dim, k)
-
-    # Copy weights & bias safely
-    with torch.no_grad():
-        new_classifier.weight.copy_(new_weights)
-        if new_bias is not None:
-            new_classifier.bias.copy_(new_bias)
-
-    # Free memory properly
-    del model  
-    torch.cuda.empty_cache()  # Optional: Clear GPU memory if needed
-
-    return new_classifier
-        
+            
 
 ##############################################################################################################################################
 def feature_matching_OTDD_tgt_model(args,root , tgt_model, sample_shape, num_classes):
