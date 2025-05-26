@@ -111,7 +111,10 @@ class wrapper1D(torch.nn.Module):
         self.model = AutoModel.from_pretrained(modelname, config = configuration) if not from_scratch else AutoModel.from_config(configuration)
 
         if use_embedder:
-            self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim= 768, target_seq_len= target_seq_len, dense=self.dense)
+            if  len(input_shape) == 3 :
+                self.embedder = Embeddings1D(input_shape, config=self.model.config, embed_dim= 768, target_seq_len= target_seq_len, dense=self.dense)
+            else: 
+                self.embedder = Embeddings2D(input_shape, 4, config=self.model.config, embed_dim= 768, img_size = 224)
             embedder_init(self.model.embeddings, self.embedder, train_embedder=train_epoch > 0)
             set_grad_state(self.embedder, True)    
         else:
@@ -551,7 +554,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
                 
             if datanum > args.maxsamples:
                   break
-
+        print("feature_shape: ", feats.shape)
         feats = torch.cat(feats, 0).mean(1)
         if feats.shape[0] > 1:
             #feats_np = feats.numpy()
