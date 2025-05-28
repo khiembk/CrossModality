@@ -19,4 +19,28 @@
 # 3.2 Reproduce ORCA (only config required): 
       python oldmain.py --configs/task.yaml --log_folder "Logfolder" --root_dataset "pathToDataSet"  --pde= True
 
+### Short Explanations on the Config Args:
+
+config: [string] [optional] Name of the configuration file, default = None.
+
+root_dataset: [string] [optional] Path to customize dataset, default = None.
+
+log_folder: [string] [optional] Path to log folder, default = None.
+
+C_entropy: [bool] [optional] Determines if conditional entropy label matching is used, default = False.
+
+second_train: [bool] [optional] Determines if a second training of the model is performed, default = False.
+
+fm_ep: [int] [optional] Number of feature matching epochs, default = None.
+
+lm_ep: [int] [optional] Number of label matching epochs, default = None.
+
+seed: [int] [optional] Seed for training to ensure reproducibility, default = None.
+
+pde: [bool] [optional] Indicates if the dataset is a PDE dataset, default = False.
+
+id: [int] [optional] ID of the experiment, default = None.
+
+
+
       
