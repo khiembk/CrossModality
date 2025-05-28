@@ -548,10 +548,14 @@ if __name__ == '__main__':
     parser.add_argument('--lm_ep', type= int, default= None, help='Number of label matching')
     parser.add_argument('--seed', type= int, default= None, help='[optional]Seed for training')
     parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
+    parser.add_argument('--id', type= int, default= None, help='[optional]Id of experiment')
+    
+    
     args = parser.parse_args()
     fm_ep = args.fm_ep
     lm_ep = args.lm_ep
     seed = args.seed
+    id = args.id
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     C_entropy = args.C_entropy
@@ -565,14 +569,16 @@ if __name__ == '__main__':
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
             
-            if (fm_ep != None): 
+            if (fm_ep is not None): 
                 args.embedder_epochs = fm_ep
-            if (lm_ep != None):
+            if (lm_ep is not None):
                 args.label_epochs = lm_ep
-            if (seed != None):
+            if (seed is not None):
                 args.seed = seed
 
             args.experiment_id = random.randint(1000, 9999)
+            if id is not None:
+                args.experiment_id = id
             args.finetune_method = args.finetune_method + 'FM_' + str(args.embedder_epochs) + '_CE_' + str(args.label_epochs) + '_seed_' + str(args.seed) 
              
             setattr(args, 'C_entropy', C_entropy)
