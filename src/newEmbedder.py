@@ -514,7 +514,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
                 
             if datanum > args.maxsamples:
                   break
-        print("feature_shape: ", feats.shape)
+        
         feats = torch.cat(feats, 0).mean(1)
         if feats.shape[0] > 1:
             #feats_np = feats.numpy()
