@@ -705,7 +705,7 @@ def load_fsd(root, batch_size, valid_split=-1):
         raise KeyError
 
     mixer = BackgroundAddMixer()
-    train_mixer = UseMixerWithProb(mixer, 0.75)
+    train_mixer = UseMixerWithProb(mixer, 0.82)
     train_transforms = get_transforms_fsd_chunks(True, 101)
     val_transforms = get_transforms_fsd_chunks(False, 101)
 
