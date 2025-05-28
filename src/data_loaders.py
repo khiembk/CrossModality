@@ -750,7 +750,6 @@ def load_fsd(root, batch_size, valid_split=-1):
 
 def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
     large = False
-    NS = False
     if dataset == 'Burgers':
         filename = '1D_Burgers_Sols_Nu1.0.hdf5' 
 
@@ -762,7 +761,7 @@ def load_pde(root, batch_size, dataset='1DCFD', valid_split=-1, num_workers=4):
         single_file = True
         
     elif dataset == '1DCFD':
-        root = '/mnt/disk2/khiemtt/CrossModality/src/PDE_dataset/1D'
+        #root = '/mnt/disk2/khiemtt/CrossModality/src/PDE_dataset/1D'
         filename = '1D_CFD_Rand_Eta0.1_Zeta0.1_periodic_Train.hdf5'
         reduced_resolution = 1
         reduced_resolution_t = 5

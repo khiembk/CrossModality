@@ -527,7 +527,7 @@ def feature_matching_tgt_model(args,root , tgt_model, src_train_dataset):
 
         total_losses.append(total_loss)
         embedder_stats.append([total_losses[-1], times[-1]])
-        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tTotal Variance loss:", "%.4f" % total_losses[-1])
+        print("[train embedder", ep, "%.6f" % tgt_model_optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (times[-1]), "\tWasserstein distance  loss:", "%.4f" % total_losses[-1])
 
         tgt_model_optimizer.step()
         tgt_model_scheduler.step()

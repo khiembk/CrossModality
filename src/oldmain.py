@@ -48,7 +48,7 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
       # Set the project where this run will be logged
       project= f"CrossModality_{args.dataset}",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"ORCA_baseline_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+      name=f"ORCA_baseline_{args.dataset}_id_{args.experiment_id}",
       # Track hyperparameters and run metadata
       config={
       "optimizer": args.optimizer,
@@ -428,6 +428,7 @@ if __name__ == '__main__':
         with open(args.config, 'r') as stream:
             config = yaml.safe_load(stream)
             args = SimpleNamespace(**config['hyperparameters'])
+            args.experiment_id = random.randint(1000, 9999)
             setattr(args, 'pde', pde)
             if (embedder_ep != None): 
                 args.embedder_epochs = embedder_ep

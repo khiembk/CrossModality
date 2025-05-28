@@ -16,20 +16,10 @@ from test_model import get_src_predictor1D
 import wandb
 from datetime import datetime
 from newEmbedder import label_matching_by_entropy, label_matching_by_conditional_entropy
-def set_seed(seed: int = 42) -> None:
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    # When running on the CuDNN backend, two further options must be set
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    # Set a fixed value for the hash seed
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    print(f"Random seed set as {seed}")
+
 
 def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_folder = None, second_train = False):
-    #set_seed()
+
     ############## Init log file and set seed
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     #args.device = 'cuda' 
@@ -42,21 +32,29 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
            root = DatasetRoot + '/datasets'
 
     print("Path folder dataset: ",root) 
+    ############################### Set seed ###############################
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed) 
     torch.cuda.manual_seed_all(args.seed)
-
+    
+    ############################################### Log ################################################
     log_file = f"{args.dataset}_{args.finetune_method}.log"
     if (log_folder is not None):
         log_dir = os.path.join(log_folder)
         os.makedirs(log_dir, exist_ok= True)
         log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
+    else:
+        log_folder = "Logs"
+        log_dir = os.path.join(log_folder)
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
 
     logging.basicConfig(filename= log_file,
                     level=logging.INFO,  # Set logging level
                     format='%(asctime)s - %(levelname)s - %(message)s') 
+    ###################################################################################################
     if args.reproducibility:
         cudnn.deterministic = True
         cudnn.benchmark = False
@@ -71,8 +69,8 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       project= f"CrossModality_{args.dataset}",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
       name = (
-    f"experiment_{args.dataset}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
-    f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}"),
+    f"experiment_{args.dataset}_id_{str(args.experiment_id)}_"
+    f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}_seed-{args.seed}"),
       # Track hyperparameters and run metadata
       config={
       "optimizer": args.optimizer,
@@ -175,12 +173,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     decoder = data_kwargs['decoder'] if data_kwargs is not None and 'decoder' in data_kwargs else None 
     transform = data_kwargs['transform'] if data_kwargs is not None and 'transform' in data_kwargs else None 
     ###############################################################################################
-    # Do linear probing:
-    if args.lp_ep is not None:
-        print("Begin linear probing with ep = ", args.lp_ep)
-        linear_probing(args, tgt_model,train_loader, val_loader,test_loader,metric,compare_metrics,decoder,transform,Roberta,loss,n_train,n_val,args.lp_ep)
-        print("Finish linear probing") 
-    ###############################################################################################
+    
     print("load dic if model was trained ...")
     tgt_model, ep_start, id_best, train_score, train_losses, embedder_stats_saved = load_state(use_determined, args, context, tgt_model, None, None, n_train, freq=args.validation_freq, test=True)
     # embedder_stats = embedder_stats if embedder_stats_saved is None else embedder_stats_saved
@@ -303,52 +296,6 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
    
     wandb.finish()    
 
-
-def linear_probing(args, model, train_loader, val_loader, test_loader, metric, compare_metrics,decoder,transform, Roberta, loss,n_train,n_val,linear_prob_ep=5):
-    ###### check model
-    print("Freeze body model...")
-    if Roberta:
-            print("Freeze 1D bodymodel...")
-            set_grad_state(model.model.encoder,False)
-            set_grad_state(model.predictor, True)
-    else:
-            print("Freeze 2D body model...")
-            set_grad_state(model.model.swin.encoder,False)
-            set_grad_state(model.predictor, True)   
-    ###### load optimizer
-    args, model, optimizer, scheduler = get_optimizer_scheduler(args, model, n_train=n_train)
-    if args.device == 'cuda':
-        model.cuda()
-        try:
-            loss.cuda()
-        except:
-            pass
-        if decoder is not None:
-            decoder.cuda()
-
-    ###### start linear probing
-    print("\n------- Start Linear Probing --------" )
-    train_losses = []
-    train_score = []
-    train_time = [] 
-    for ep in range(linear_prob_ep):
-        ##### train
-        time_start = default_timer()
-        train_loss = train_one_epoch(None, args, model, optimizer, scheduler, train_loader, loss, n_train, decoder, transform)
-        train_time_ep = default_timer() -  time_start 
-        #### eval
-        val_loss, val_score = evaluate(None, args, model, val_loader, loss, metric, n_val, decoder, transform, fsd_epoch=ep if args.dataset == 'FSD' else None)
-        train_losses.append(train_loss)
-        train_score.append(val_score)
-        train_time.append(train_time_ep)
-        print("[train", "predictor" , ep, "%.6f" % optimizer.param_groups[0]['lr'], "] time elapsed:", "%.4f" % (train_time[-1]), "\ttrain loss:", "%.4f" % train_loss, "\tval loss:", "%.4f" % val_loss, "\tval score:", "%.4f" % val_score, "\tbest val score:", "%.4f" % compare_metrics(train_score))
-    
-    print("\n------- Finish Linear Probing --------" )
-    ###### set full model trainable
-    print("Set all params trainable...")
-    set_grad_state(model,True) 
-    ###### delete trash
-    return model
 
 def train_one_epoch(context, args, model, optimizer, scheduler, loader, loss, temp, decoder=None, transform=None):    
 
@@ -596,21 +543,20 @@ if __name__ == '__main__':
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--C_entropy', type= bool, default= False, help='[option]determind Conditional entropy label matching or not')
-    parser.add_argument('--freeze_bodymodel', type= bool, default= False, help='[option]determind freeze_body model or not')
     parser.add_argument('--second_train', type= bool, default= False, help='[option]determind second train model or not')
-    parser.add_argument('--lp_ep', type= int, default= None, help='Number of linear probing')
     parser.add_argument('--fm_ep', type= int, default= None, help='Number of feature matching')
     parser.add_argument('--lm_ep', type= int, default= None, help='Number of label matching')
+    parser.add_argument('--seed', type= int, default= None, help='[optional]Seed for training')
     parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
     args = parser.parse_args()
     fm_ep = args.fm_ep
     lm_ep = args.lm_ep
+    seed = args.seed
     root_dataset = args.root_dataset
     log_folder = args.log_folder
     C_entropy = args.C_entropy
     second_train = args.second_train
     freeze_bodymodel = args.freeze_bodymodel
-    lp_ep = args.lp_ep
     pde = args.pde
     ############################################
     if args.config is not None:     
@@ -622,15 +568,14 @@ if __name__ == '__main__':
             if (fm_ep != None): 
                 args.embedder_epochs = fm_ep
             if (lm_ep != None):
-                args.label_epochs = lm_ep    
-            if (args.embedder_epochs > 0):
-                args.finetune_method = args.finetune_method + 'FM_CE' + str(args.embedder_epochs)
-            if (freeze_bodymodel):
-                args.finetune_method = args.finetune_method + '_freeze_bodymodel'
-            ################################################################    
-            setattr(args, 'freeze_bodymodel', freeze_bodymodel)    
+                args.label_epochs = lm_ep
+            if (seed != None):
+                args.seed = seed
+
+            args.experiment_id = random.randint(1000, 9999)
+            args.finetune_method = args.finetune_method + 'FM_' + str(args.embedder_epochs) + '_CE_' + str(args.label_epochs) + '_seed_' + str(args.seed) 
+             
             setattr(args, 'C_entropy', C_entropy)
-            setattr(args, 'lp_ep', lp_ep)
             setattr(args, 'pde', pde)
             if not hasattr(args, 'label_epochs'):
                 setattr(args, 'label_epochs', 1)         
