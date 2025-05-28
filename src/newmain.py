@@ -70,7 +70,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
       name = (
     f"experiment_{args.dataset}_id_{str(args.experiment_id)}_"
-    f"CE-{args.C_entropy}_LE-{args.label_epochs}_FB-{args.freeze_bodymodel}_seed-{args.seed}"),
+    f"CE-{args.C_entropy}_LE-{args.label_epochs}_seed-{args.seed}"),
       # Track hyperparameters and run metadata
       config={
       "optimizer": args.optimizer,
@@ -80,7 +80,6 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
       "feature_matching_epochs:": args.embedder_epochs,
       "Conditional_entropy": args.C_entropy,
       "label_matching_epochs:": args.label_epochs,
-      "freeze_bodymodel": args.freeze_bodymodel,
       })
     
     #################### Load config 
@@ -152,18 +151,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         set_grad_state(tgt_model.embedder, True)
         ######################################################
     
-    if (args.freeze_bodymodel):
-        if Roberta:
-            print("Freeze 1D bodymodel...")
-            set_grad_state(tgt_model.model.encoder,False)
-            set_grad_state(tgt_model.embedder, True)
-            set_grad_state(tgt_model.predictor, True)
-        else:
-            print("Freeze 2D body model...")
-            set_grad_state(tgt_model.model.swin.encoder,False)
-            set_grad_state(tgt_model.embedder, True)
-            set_grad_state(tgt_model.predictor, True)       
-        
+         
     print("final model: ", tgt_model)
 
     ######### load tgt dataset 
@@ -560,7 +548,7 @@ if __name__ == '__main__':
     log_folder = args.log_folder
     C_entropy = args.C_entropy
     second_train = args.second_train
-    freeze_bodymodel = args.freeze_bodymodel
+
     pde = args.pde
     ############################################
     if args.config is not None:     
