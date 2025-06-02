@@ -418,10 +418,12 @@ if __name__ == '__main__':
     parser.add_argument('--root_dataset', type= str, default= None, help='[option]path to customize dataset')
     parser.add_argument('--log_folder', type= str, default= None, help='[option]path to log folder')
     parser.add_argument('--pde', type= bool, default= False, help='[optional]PDE dataset or not')
+    parser.add_argument('--seed', type= int, default= None, help='[optional]Seed for training')
     args = parser.parse_args()
     embedder_ep = args.embedder_ep
     root_dataset = args.root_dataset
     log_folder = args.log_folder
+    seed = args.seed
     pde = args.pde
     if args.config is not None:     
         import yaml
@@ -434,7 +436,9 @@ if __name__ == '__main__':
                 args.embedder_epochs = embedder_ep
             if (args.embedder_epochs > 0):
                 args.finetune_method = args.finetune_method + 'orca' + str(args.embedder_epochs)
-                     
+
+            if (seed is not None):
+                args.seed = seed         
             main(False, args, DatasetRoot= root_dataset, log_folder= log_folder)
 
     
