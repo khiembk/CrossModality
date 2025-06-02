@@ -362,7 +362,7 @@ def download_pde(root, dataset):
         target_filepath = os.path.join(root, filename)
         url = 'https://darus.uni-stuttgart.de/api/access/datafile/133021'
 
-    elif dataset == 'Darcy':
+    elif dataset == 'DC':
         filename = '2D_DarcyFlow_beta0.1_Train.hdf5'
         target_filepath = os.path.join(root, filename)
         url = 'https://darus.uni-stuttgart.de/api/access/datafile/133218'
