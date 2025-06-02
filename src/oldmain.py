@@ -30,6 +30,11 @@ def main(use_determined, args, info=None, context=None,  DatasetRoot= None, log_
         log_dir = os.path.join(log_folder)
         os.makedirs(log_dir, exist_ok= True)
         log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
+    else:
+        log_folder = "Logs"
+        log_dir = os.path.join(log_folder)
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"{args.dataset}_{args.finetune_method}.log")
 
     logging.basicConfig(filename= log_file,
                     level=logging.INFO,  # Set logging level
