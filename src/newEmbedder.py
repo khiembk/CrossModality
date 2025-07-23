@@ -334,8 +334,103 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
     torch.cuda.empty_cache()
     
     return src_model, src_train_dataset
-            
 
+
+###############################################################################################################################################
+def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes, source_classes=10, tau=0.2, rho=1000):
+    ###################################### train predictor 
+    """
+    Retrain the source prediction head with tau to enforce the assumption
+    Regularizer: L = L_s + (rho / N_s) * sum(max(0, ||grad_z l_s(z)||_2 - tau)^2)
+    where z is the output of the embedder
+    """
+    print("get src_model and src_feature...")
+    src_train_loader, _, _, _, _, _, _ = get_data(root, args.embedder_dataset, args.batch_size, False, maxsize=5000)
+    IMG_SIZE = 224 if args.weight == 'tiny' or args.weight == 'base' else 196
+    num_classes = 10
+    print("num class: ", num_classes)    
+    src_model = wrapper2D(sample_shape, num_classes, use_embedder=False, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, drop_out=args.drop_out)
+    src_model = src_model.to(args.device)
+    src_model.output_raw = False
+    
+    # Modify forward pass to return both output and features
+    def forward_with_features(self, x):
+        z = self.embedder(x)  # Assume embedder is a module in wrapper2D
+        out = self.predictor(z)  # Assume predictor is a module in wrapper2D
+        return out, z
+    
+    # Bind modified forward method to src_model (adjust if wrapper2D already supports this)
+    import types
+    src_model.forward = types.MethodType(forward_with_features, src_model)
+    
+    optimizer = optim.AdamW(
+        src_model.parameters(),
+        lr=args.lr if hasattr(args, 'lr') else 1e-4,
+        weight_decay=0.05
+    )
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=args.embedder_epochs/10
+    )
+    criterion = nn.CrossEntropyLoss(
+        label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0
+    )
+    src_model.train()
+    set_grad_state(src_model.predictor, True)
+    print("trainable params count: ", count_trainable_params(src_model))
+    print("trainable params: ")  
+    for name, param in src_model.named_parameters():
+        if param.requires_grad:
+            print(name)
+    
+    for epoch in range(args.embedder_epochs//10):
+        running_loss = 0.0 
+        running_reg_loss = 0.0  # Track regularizer loss
+        correct = 0  
+        total = 0
+        for i, data in enumerate(src_train_loader):
+            x_, y_ = data 
+            x_ = x_.to(args.device)
+            y_ = y_.to(args.device)
+            x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+            
+            optimizer.zero_grad()
+            out, z = src_model(x_)  # Get both output and embedder features
+            z = z.detach().requires_grad_(True)  # Detach z from main graph, enable grad
+            
+            # Compute source loss (cross-entropy)
+            loss_s = criterion(out, y_)
+            
+            # Compute gradient of loss w.r.t. features z
+            grad_z = torch.autograd.grad(loss_s, z, create_graph=True)[0]
+            
+            # Compute L2 norm of gradient for each sample in the batch
+            grad_norm = torch.norm(grad_z, p=2, dim=1)  # Shape: [batch_size]
+            
+            # Compute regularizer: sum(max(0, ||grad_z||_2 - tau)^2)
+            reg_term = torch.max(torch.zeros_like(grad_norm), grad_norm - tau) ** 2
+            reg_loss = (rho / y_.size(0)) * reg_term.sum()  # Scale by rho / N_s
+            
+            # Total loss: L = L_s + reg_loss
+            total_loss = loss_s + reg_loss
+            
+            total_loss.backward()
+            optimizer.step()
+            
+            running_loss += loss_s.item()
+            running_reg_loss += reg_loss.item()
+            _, predicted = torch.max(out, 1)  # Get the index of max log-probability
+            total += y_.size(0)
+            correct += (predicted == y_).sum().item()
+        
+        scheduler.step()
+        accuracy = 100. * correct / total
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs//10}], '
+              f'Average Source Loss: {running_loss/len(src_train_loader):.4f}, '
+              f'Average Reg Loss: {running_reg_loss/len(src_train_loader):.4f}, '
+              f'Accuracy: {accuracy:.2f}%')  
+
+    return src_model
 ##############################################################################################################################################
 def feature_matching_OTDD_tgt_model(args,root , tgt_model, sample_shape, num_classes):
     """

@@ -72,7 +72,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         ###### Do feature matching 
         tgt_model = feature_matching_tgt_model(args,root, tgt_model,src_train_feature)
         tgt_feats_visualize_before = get_feature_extract_from_model(tgt_model, tgt_train_loader, transform)
-        visualize_feature_save(src_feats_visualize,tgt_feats_visualize_before)
+        #visualize_feature_save(src_feats_visualize,tgt_feats_visualize_before)
         ###### get tgt feature before label-matching 
         print("Do fast label matching...")
         src_model = label_matching_by_entropy(args,root, src_model, tgt_model.embedder, num_classes, model_type="2D")
@@ -83,7 +83,7 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
         del src_model
         ###### get tgt feature after-label-matching 
         tgt_feats_visualize_after = get_feature_extract_from_model(tgt_model, tgt_train_loader, transform)
-        visualize_feature_save(src_feats_visualize,tgt_feats_visualize_after, name = "after")
+        visualize_feature_save(tgt_feats_visualize_before,tgt_feats_visualize_after, name = "after")
 
 
         
