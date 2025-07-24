@@ -381,7 +381,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
 
 
 ###############################################################################################################################################
-def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes, source_classes=10, tau=0.3, rho=1000):
+def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes, source_classes=10, tau=0.4, rho=100):
     ###################################### train predictor 
     """
     Retrain the source prediction head with tau to enforce the assumption
@@ -399,9 +399,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     
     
     
-    #### Enable foward with feature
-    src_model.forward_with_feature = True
-    ################################
+    
     
     optimizer = optim.AdamW(
         src_model.parameters(),
@@ -410,7 +408,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     )
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max=args.embedder_epochs/10
+        T_max= 10
     )
     criterion = nn.CrossEntropyLoss(
         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0
@@ -422,8 +420,37 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     for name, param in src_model.named_parameters():
         if param.requires_grad:
             print(name)
-    
-    for epoch in range(args.embedder_epochs):
+    ############################################################################################
+    for epoch in range(6):
+        running_loss = 0.0 
+        correct = 0  
+        total = 0
+        for i, data in enumerate(src_train_loader):
+             x_, y_ = data 
+             x_ = x_.to(args.device)
+             y_ = y_.to(args.device)
+             x_ = transforms.Resize((IMG_SIZE, IMG_SIZE))(x_)
+             optimizer.zero_grad()
+             out = src_model(x_)
+             loss = criterion(out, y_)
+             loss.backward()
+             optimizer.step()
+             running_loss += loss.item()
+             _, predicted = torch.max(out, 1)  # Get the index of max log-probability
+             total += y_.size(0)
+             correct += (predicted == y_).sum().item()
+         
+        scheduler.step()
+        accuracy = 100. * correct / total
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs//10}], '
+               f'Average Loss: {running_loss/len(src_train_loader):.4f}'
+               f' Accuracy: {accuracy:.2f}%')  
+    #########################################################################################################
+    #### Enable foward with feature
+    src_model.forward_with_feature = True
+    ################################
+
+    for epoch in range(6,10):
         running_loss = 0.0 
         running_reg_loss = 0.0  # Track regularizer loss
         correct = 0  
@@ -464,7 +491,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
         
         scheduler.step()
         accuracy = 100. * correct / total
-        print(f'Epoch [{epoch+1}/{args.embedder_epochs//10}], '
+        print(f'Epoch [{epoch+1}/{args.embedder_epochs}], '
               f'Average Source Loss: {running_loss/len(src_train_loader):.4f}, '
               f'Average Reg Loss: {running_reg_loss/len(src_train_loader):.4f}, '
               f'Accuracy: {accuracy:.2f}%')  
