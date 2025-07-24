@@ -381,7 +381,7 @@ def get_pretrain_model2D_feature(args,root,sample_shape, num_classes, source_cla
 
 
 ###############################################################################################################################################
-def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes, source_classes=10, tau=0.2, rho=1000):
+def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes, source_classes=10, tau=0.3, rho=1000):
     ###################################### train predictor 
     """
     Retrain the source prediction head with tau to enforce the assumption
@@ -423,7 +423,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
         if param.requires_grad:
             print(name)
     
-    for epoch in range(args.embedder_epochs//10):
+    for epoch in range(args.embedder_epochs):
         running_loss = 0.0 
         running_reg_loss = 0.0  # Track regularizer loss
         correct = 0  
