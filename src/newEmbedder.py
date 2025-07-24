@@ -92,10 +92,23 @@ class wrapper2D(torch.nn.Module):
         return self.predictor(x)
 
     def forward_with_features(self, x):
-        z = self.self.model.swin.embeddings(x)[0]
-        x = self.model(x).logits
+        z, input_dimensions = self.model.swin.embeddings(x)  
+        z = z.clone().requires_grad_(True)
+        encoder_output = self.model.swin.encoder(z, input_dimensions)
+        #print(f"encoder_output shape: {encoder_output[0].shape}")
+        x = self.model.swin.layernorm(encoder_output[0])
+        #print(f"layernorm output shape: {x.shape}")
+        # Transpose for pooling
+        x = x.transpose(1, 2)  # Shape: [batch_size, embed_dim, seq_len]
+        #print(f"transposed shape: {x.shape}")
+        # Apply pooler
+        x = self.model.pooler(x)  # Shape: [batch_size, embed_dim, 1]
+        #print(f"pooler output shape: {x.shape}")
+        
+        # Squeeze for predictor
+        x = x.squeeze(-1)  # Shape: [batch_size, embed_dim]
+        #print(f"squeezed shape: {x.shape}")
         out = self.predictor(x)
-
         return out, z
 
 
@@ -423,13 +436,12 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
             
             optimizer.zero_grad()
             out, z = src_model(x_)  # Get both output and embedder features
-            z = z.detach().requires_grad_(True)  # Detach z from main graph, enable grad
-            
+            z.requires_grad_(True)  
             # Compute source loss (cross-entropy)
             loss_s = criterion(out, y_)
             
             # Compute gradient of loss w.r.t. features z
-            grad_z = torch.autograd.grad(loss_s, z, create_graph=True)[0]
+            grad_z = torch.autograd.grad(loss_s, z, create_graph=True, allow_unused=False)[0]
             
             # Compute L2 norm of gradient for each sample in the batch
             grad_norm = torch.norm(grad_z, p=2, dim=1)  # Shape: [batch_size]

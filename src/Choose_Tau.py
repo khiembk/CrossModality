@@ -51,16 +51,14 @@ def main(use_determined ,args,info=None, context=None, DatasetRoot= None, log_fo
     #################### Load config 
     dims, sample_shape, num_classes, loss, args = get_config(root, args)
     print("current configs: ", args)
-    if load_embedder(use_determined, args):
-        print("Log: Set embedder_epochs = 0")
-        args.embedder_epochs = 0
+    
     ####### determind type of backbone
     Roberta = True if len(sample_shape) == 3 else False
     wrapper_func = wrapper1D if len(sample_shape) == 3 else wrapper2D
     ########## init tgt_model
     tgt_model = wrapper_func(sample_shape, num_classes, weight=args.weight, train_epoch=args.embedder_epochs, activation=args.activation, target_seq_len=args.target_seq_len, drop_out=args.drop_out)
     tgt_model = tgt_model.to(args.device).train()
-    continue_training = check_if_continue_training(args)
+    
     
     if Roberta is not True: 
         print("2D task...")
