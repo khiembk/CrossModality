@@ -40,6 +40,7 @@ class wrapper2D(torch.nn.Module):
         super().__init__()
         self.classification = (not isinstance(output_shape, tuple)) and (output_shape != 1)
         self.output_raw = True
+        self.forward_with_feature = False
         print("cur_classification: ", self.classification)
         
         arch_name = "microsoft/swin-base-patch4-window7-224-in22k"
@@ -83,10 +84,19 @@ class wrapper2D(torch.nn.Module):
     def forward(self, x):
         if self.output_raw:
             return self.model.swin.embeddings(x)[0]
-            
-        x = self.model(x).logits
 
+        if self.forward_with_feature:
+            return self.forward_with_features(x)
+
+        x = self.model(x).logits
         return self.predictor(x)
+
+    def forward_with_features(self, x):
+        z = self.self.model.swin.embeddings(x)[0]
+        x = self.model(x).logits
+        out = self.predictor(x)
+
+        return out, z
 
 
 class wrapper1D(torch.nn.Module):
@@ -95,6 +105,7 @@ class wrapper1D(torch.nn.Module):
 
         self.dense = False
         self.output_raw = True
+        self.forward_with_feature = False
         self.weight = weight
         self.output_shape = output_shape
 
@@ -139,6 +150,9 @@ class wrapper1D(torch.nn.Module):
         if self.output_raw:
             return self.embedder(x) 
 
+        if self.forward_with_feature:
+            return self.forward_with_features(x)
+
         x = self.embedder(x)
 
         if self.dense:
@@ -152,6 +166,23 @@ class wrapper1D(torch.nn.Module):
             x = x.squeeze(1)
 
         return x
+
+    def forward_with_features(self, x):
+        z = self.embedder(x)
+        out = self.embedder(x)
+        if self.dense:
+            out = self.model(inputs_embeds=out)['last_hidden_state']
+            out = self.predictor(x)
+        else:
+            out = self.model(inputs_embeds=out)['pooler_output']
+            out = self.predictor(out)
+
+        if out.shape[1] == 1 and len(out.shape) == 2:
+            out = out.squeeze(1)
+    
+
+        return out, z
+
 
 #######################################################################################################
 def get_gpu_memory_usage():
@@ -353,15 +384,11 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     src_model = src_model.to(args.device)
     src_model.output_raw = False
     
-    # Modify forward pass to return both output and features
-    def forward_with_features(self, x):
-        z = self.embedder(x)  # Assume embedder is a module in wrapper2D
-        out = self.predictor(z)  # Assume predictor is a module in wrapper2D
-        return out, z
     
-    # Bind modified forward method to src_model (adjust if wrapper2D already supports this)
-    import types
-    src_model.forward = types.MethodType(forward_with_features, src_model)
+    
+    #### Enable foward with feature
+    src_model.forward_with_feature = True
+    ################################
     
     optimizer = optim.AdamW(
         src_model.parameters(),
@@ -431,6 +458,8 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
               f'Accuracy: {accuracy:.2f}%')  
 
     return src_model
+
+
 ##############################################################################################################################################
 def feature_matching_OTDD_tgt_model(args,root , tgt_model, sample_shape, num_classes):
     """
