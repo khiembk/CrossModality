@@ -408,7 +408,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     )
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        T_max= 10
+        T_max= 20
     )
     criterion = nn.CrossEntropyLoss(
         label_smoothing=0.1 if hasattr(args, 'label_smoothing') else 0.0
@@ -450,7 +450,7 @@ def get_pretrain_model2D_feature_with_tau(args, root, sample_shape, num_classes,
     src_model.forward_with_feature = True
     ################################
 
-    for epoch in range(6,10):
+    for epoch in range(6,20):
         running_loss = 0.0 
         running_reg_loss = 0.0  # Track regularizer loss
         correct = 0  
@@ -786,8 +786,8 @@ def label_matching_by_entropy(args,root, src_model, tgt_embedder,num_classes ,sr
     else:
        src_model.embedder = tgt_embedder 
          
-    set_grad_state(src_model.model, True)
-    set_grad_state(src_model.embedder, False)
+    set_grad_state(src_model.model,False)
+    set_grad_state(src_model.embedder, True)
     if fronzen_predictor:
        print("[Label Matching]-Set src predictor frozen...")
        set_grad_state(src_model.predictor, False)
@@ -1017,8 +1017,8 @@ def label_matching_by_conditional_entropy(args,root, src_model, tgt_embedder,num
     else:
        src_model.embedder = tgt_embedder 
           
-    set_grad_state(src_model.model, True)
-    set_grad_state(src_model.embedder, False)
+    set_grad_state(src_model.model, False)
+    set_grad_state(src_model.embedder, True)
     if frozen_predictor:
        print("[Label Matching]-Set src predictor frozen")
        set_grad_state(src_model.predictor, False) 
